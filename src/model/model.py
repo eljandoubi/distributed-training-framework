@@ -50,20 +50,41 @@ class DeepSeekV3Model(nn.Module):
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = precompute_freqs_cis(self.model_args)
-        if self.tok_embeddings is not None:
-            nn.init.normal_(self.tok_embeddings.weight)
+        
+        nn.init.normal_(self.tok_embeddings.weight)
+
         for layer in self.layers.values():
             if layer is not None:
                 layer.init_weights(init_std=init_std, buffer_device=buffer_device) # type: ignore
-        if self.norm is not None:
-            self.norm.reset_parameters()
+        
+        self.norm.reset_parameters()
+
         final_out_std = self.model_args.dim**-0.5
         cutoff_factor = 3
-        if self.output is not None:
-            nn.init.trunc_normal_(
-                self.output.weight,
-                mean=0.0,
-                std=final_out_std,
-                a=-cutoff_factor * final_out_std,
-                b=cutoff_factor * final_out_std,
-            )
+        nn.init.trunc_normal_(
+            self.output.weight,
+            mean=0.0,
+            std=final_out_std,
+            a=-cutoff_factor * final_out_std,
+            b=cutoff_factor * final_out_std,
+        )
+
+    def forward(self, tokens: torch.Tensor):
+        """
+        Forward pass for the Transformer model.
+
+        Args:
+            tokens (torch.Tensor): Input token indices if pipeline parallelism is not enabled.
+                If pipeline parallelism is enabled, this will be the input token indices for the ranks on the first pipeline stage. This will be the activation of the previous pipeline stage if the current rank is not on the first stage.
+
+        Returns:
+            torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
+        """
+
+        h = self.tok_embeddings(tokens)
+
+        for layer in self.layers.values():
+            h = layer(h, self.freqs_cis)
+        h = self.norm(h)
+        output = self.output(h)
+        return output
