@@ -38,7 +38,7 @@ class TransformerBlock(nn.Module):
         else:
             self.feed_forward = FeedForward(model_args.dim, model_args.inter_dim)
 
-        self.weight_init_std = 0.02 / (2 * (layer_id + 1)) ** 0.5
+        self.weight_init_std: float = 0.02 / (2 * (layer_id + 1)) ** 0.5
         self.layer_id = layer_id
 
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
@@ -70,13 +70,15 @@ class TransformerBlock(nn.Module):
             )
         for norm in (self.attention_norm, self.ffn_norm):
             norm.reset_parameters()
-        self.attention.init_weights(self.weight_init_std)
+
+        std = init_std or self.weight_init_std
+        self.attention.init_weights(std)
         if self.moe_enabled:
             self.moe.init_weights(
-                init_std=self.weight_init_std, buffer_device=buffer_device
+                init_std=std, buffer_device=buffer_device
             )
         else:
-            self.feed_forward.init_weights(self.weight_init_std)
+            self.feed_forward.init_weights(std)
 
 
 class DeepSeekV3Model(nn.Module):
