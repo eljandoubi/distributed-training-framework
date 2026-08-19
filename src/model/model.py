@@ -1,24 +1,82 @@
 
 import torch
+from src.model.moe import FeedForward, MoE  # type: ignore
 from torch import nn
 
-from model.args import DeepSeekV3ModelArgs
-from model.rope import precompute_freqs_cis
+from src.model.args import DeepSeekV3ModelArgs
+from src.model.rope import precompute_freqs_cis
+
+
+class Attention(nn.Module):
+    def __init__(self, model_args: DeepSeekV3ModelArgs):
+        super().__init__()
+        self.model_args = model_args
+
+
+    def init_weights(self, init_std: float):
+        pass
 
 
 class TransformerBlock(nn.Module):
+    """
+    Transformer block with attention and feed-forward layers.
+    """
+
     def __init__(self, layer_id: int, model_args: DeepSeekV3ModelArgs):
         super().__init__()
-        self.layer_id = layer_id
-        self.model_args = model_args
+        self.attention = Attention(model_args)
+        self.attention_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
+        self.ffn_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
 
+        self.moe_enabled = layer_id >= model_args.n_dense_layers
+        if self.moe_enabled:
+            self.moe = MoE(
+                model_args.moe_args,
+                dim=model_args.dim,
+                hidden_dim=model_args.moe_inter_dim,
+            )
+        else:
+            self.feed_forward = FeedForward(model_args.dim, model_args.inter_dim)
+
+        self.weight_init_std = 0.02 / (2 * (layer_id + 1)) ** 0.5
+        self.layer_id = layer_id
+
+    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
+        """
+        Forward pass for the Transformer block.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, dim).
+            freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
+
+        Returns:
+            torch.Tensor: Output tensor with the same shape as the input.
+        """
+        x = x + self.attention(self.attention_norm(x), freqs_cis)
+        if self.moe_enabled:
+            x = x + self.moe(self.ffn_norm(x))
+        else:
+            x = x + self.feed_forward(self.ffn_norm(x))
+        return x
 
     def init_weights(
         self,
         init_std: float | None = None,
         buffer_device: torch.device | None = None,
     ):
-        pass
+        if buffer_device is None:
+            raise ValueError(
+                "buffer_device must be provided for TransformerBlock weight initialization"
+            )
+        for norm in (self.attention_norm, self.ffn_norm):
+            norm.reset_parameters()
+        self.attention.init_weights(self.weight_init_std)
+        if self.moe_enabled:
+            self.moe.init_weights(
+                init_std=self.weight_init_std, buffer_device=buffer_device
+            )
+        else:
+            self.feed_forward.init_weights(self.weight_init_std)
 
 
 class DeepSeekV3Model(nn.Module):
