@@ -7,7 +7,7 @@ from src.model.moe import FeedForward, MoE  # type: ignore
 from torch import nn
 
 from src.model.args import DeepSeekV3ModelArgs
-from src.model.rope import precompute_freqs_cis
+from src.model.rope import apply_rotary_emb, precompute_freqs_cis
 
 
 class Attention(nn.Module):
@@ -44,14 +44,79 @@ class Attention(nn.Module):
             bias=False,
         )
         self.wo = nn.Linear(self.n_heads * self.v_head_dim, self.dim, bias=False)
-        self.softmax_scale = self.qk_head_dim**-0.5
 
+        self.softmax_scale = self.qk_head_dim**-0.5
         if model_args.max_seq_len > model_args.original_seq_len:
             mscale = 0.1 * model_args.mscale * math.log(model_args.rope_factor) + 1.0
             self.softmax_scale = self.softmax_scale * mscale * mscale
 
         self.inner_attention = ScaledDotProductAttentionWrapper()
 
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        freqs_cis: torch.Tensor,
+    ):
+        batch_size, seq_len, _ = x.size()
+
+        if self.q_lora_rank == 0:
+            q = self.wq(x)
+        else:
+            q = self.wq_a(x)
+            q = self.wq_b(self.q_norm(q))
+
+
+        q = q.view(batch_size, seq_len, -1, self.qk_head_dim)
+        q_nope, q_pe = torch.split(
+            q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
+        )
+        q_pe = apply_rotary_emb(q_pe, freqs_cis)
+        
+        q = torch.cat([q_nope, q_pe], dim=-1)
+
+        kv = self.wkv_a(x)
+        # kv: [batch_size, seq_len, kv_lora_rank]
+        # k_pe: [batch_size, seq_len, qk_rope_head_dim]
+        kv, k_pe = torch.split(kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
+
+        # k_pe: [batch_size, seq_len, 1, qk_rope_head_dim]
+        k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis)
+        # kv: [batch_size, seq_len, n_heads * (qk_nope_head_dim + v_head_dim)]
+        kv = self.wkv_b(self.kv_norm(kv))
+         # kv: [batch_size, seq_len, n_heads * (qk_nope_head_dim + v_head_dim)]
+        kv = self.wkv_b(self.kv_norm(kv))
+        # kv: [batch_size, seq_len, n_heads, qk_nope_head_dim + v_head_dim]
+        kv = kv.view(batch_size, seq_len, -1, self.qk_nope_head_dim + self.v_head_dim)
+        # k_nope: [batch_size, seq_len, n_heads, qk_nope_head_dim]
+        # v: [batch_size, seq_len, n_heads, v_head_dim]
+        k_nope, v = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
+        # k: (batch_size, seq_len, n_heads, qk_head_dim)
+        k = torch.cat([k_nope, k_pe.expand(-1, -1, self.n_heads, -1)], dim=-1)
+
+        # q: [batch_size, n_heads, seq_len, qk_head_dim]
+        q = q.transpose(1, 2)
+        # k: [batch_size, n_heads, seq_len, qk_head_dim]
+        k = k.transpose(1, 2)
+        # v: [batch_size, n_heads, seq_len, v_head_dim]
+        v = v.transpose(1, 2)
+
+        # run attention as usual
+        output = self.inner_attention(q, k, v, scale=self.softmax_scale)
+
+        # Reshape and project output
+        # output: [batch_size, seq_len, n_heads, v_head_dim]
+        output = output.transpose(1, 2).contiguous()
+        # merge all the heads as usual
+        # output: [batch_size, seq_len, n_heads * v_head_dim]
+        output = output.view(batch_size, seq_len, -1)
+        # apply Wo as usual
+        # returns [batch_size, seq_len, dim]
+        return self.wo(output)
+
+
+
+    
 
     def init_weights(self, init_std: float):
         pass
