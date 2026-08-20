@@ -117,7 +117,7 @@ class Attention(nn.Module):
 
     @torch.no_grad()
     def absorb_mla_weights(self) -> None:
-        if self.q_lora_rank != 0:
+        if self.q_lora_rank == 0:
             raise NotImplementedError()
 
         n_heads = self.n_heads
@@ -290,8 +290,27 @@ class Attention(nn.Module):
         return self.wo_abs(latent_output)
     
 
-    def init_weights(self, init_std: float):
-        pass
+    def init_weights(
+        self,
+        init_std: float,
+        buffer_device: torch.device | None = None,
+    ):
+        linear_list = [
+            self.wkv_a,
+            self.wkv_b,
+        ]
+        if self.q_lora_rank > 0:
+            linear_list.extend([self.wq_a, self.wq_b])
+        else:
+            linear_list.append(self.wq)
+
+        for linear in linear_list:
+            nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.wo.weight, mean=0.0, std=init_std)
+
+        self.kv_norm.reset_parameters()
+        if self.q_lora_rank > 0:
+            self.q_norm.reset_parameters()
 
 
 class TransformerBlock(nn.Module):
