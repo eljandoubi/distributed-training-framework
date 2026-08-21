@@ -8,14 +8,7 @@ from typing import Any, cast
 
 import torch
 from loguru import logger
-from torch.distributed.checkpoint.stateful import Stateful
-from torch.distributed.elastic.multiprocessing.errors import record
-
 from src.components.checkpoint import CheckpointManager  # type: ignore
-from src.components.dataloader import (  # type: ignore
-    BaseDataLoader,
-    DataloaderExhaustedError,
-)
 from src.components.loss import (  # type: ignore
     IGNORE_INDEX,
     LossFunction,
@@ -33,25 +26,30 @@ from src.components.optimizer import (  # type: ignore
     OptimizersContainer,
     build_optimizers_with_moe_load_balancing,
 )
-from src.components.tokenizer import (  # type: ignore
-    DeepSeekV3Tokenizer,
-)
-from src.config import TORCH_DTYPE_MAP, JobConfig
-from src.config.default_configs import (
-    get_config,
-)
-from src.config.job_config import Parallelism
 from src.datasets.hf_datasets import build_hf_dataloader  # type: ignore
 from src.distributed import ParallelDims  # type: ignore
 from src.distributed import utils as dist_utils  # type: ignore
 from src.distributed.pipeline_parallel import pipeline_llm  # type: ignore
-from src.model.model import DeepSeekV3Model
 from src.model.parallelize import parallelize_deepseekv3  # type: ignore
 from src.tools import device_utils, utils  # type: ignore
 from src.tools.profiling import (  # type: ignore
     maybe_enable_memory_snapshot,
     maybe_enable_profiling,
 )
+from torch.distributed.checkpoint.stateful import Stateful
+from torch.distributed.elastic.multiprocessing.errors import record
+
+from src.components.dataloader import (
+    BaseDataLoader,
+    DataloaderExhaustedError,
+)
+from src.components.tokenizer import DeepSeekV3Tokenizer
+from src.config import TORCH_DTYPE_MAP, JobConfig
+from src.config.default_configs import (
+    get_config,
+)
+from src.config.job_config import Parallelism
+from src.model.model import DeepSeekV3Model
 
 
 class Trainer(Stateful):
