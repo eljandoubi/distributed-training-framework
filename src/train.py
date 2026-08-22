@@ -27,9 +27,6 @@ from src.components.optimizer import (  # type: ignore
     build_optimizers_with_moe_load_balancing,
 )
 from src.datasets.hf_datasets import build_hf_dataloader  # type: ignore
-from src.distributed import ParallelDims  # type: ignore
-from src.distributed import utils as dist_utils  # type: ignore
-from src.distributed.pipeline_parallel import pipeline_llm  # type: ignore
 from src.model.parallelize import parallelize_deepseekv3  # type: ignore
 from src.tools import device_utils, utils  # type: ignore
 from src.tools.profiling import (  # type: ignore
@@ -49,6 +46,9 @@ from src.config.default_configs import (
     get_config,
 )
 from src.config.job_config import Parallelism
+from src.distributed import ParallelDims  # type: ignore
+from src.distributed import utils as dist_utils  # type: ignore
+from src.distributed.pipeline_parallel import pipeline_llm
 from src.model.model import DeepSeekV3Model
 
 
