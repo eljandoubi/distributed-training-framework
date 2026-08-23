@@ -437,10 +437,10 @@ class DeepSeekV3Model(nn.Module):
             torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
         """
 
-        h = self.tok_embeddings(tokens)
+        h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
 
         for layer in self.layers.values():
             h = layer(h, self.freqs_cis)
-        h = self.norm(h)
-        output = self.output(h)
+        h = self.norm(h) if self.norm is not None else h
+        output = self.output(h) if self.output is not None else h
         return output
