@@ -17,7 +17,7 @@ from torch.distributed.pipelining.schedules import (
 )
 
 from src.config import JobConfig
-from src.distributed import ParallelDims  # type: ignore
+from src.distributed import ParallelDims
 
 __all__ = [
     "build_pipeline_schedule",
