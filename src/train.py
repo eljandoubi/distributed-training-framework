@@ -9,11 +9,6 @@ from typing import Any, cast
 import torch
 from loguru import logger
 from src.components.checkpoint import CheckpointManager  # type: ignore
-from src.components.loss import (  # type: ignore
-    IGNORE_INDEX,
-    LossFunction,
-    build_cross_entropy_loss,
-)
 from src.components.lr_scheduler import (  # type: ignore
     LRSchedulersContainer,
     build_lr_schedulers,
@@ -26,7 +21,6 @@ from src.components.optimizer import (  # type: ignore
     OptimizersContainer,
     build_optimizers_with_moe_load_balancing,
 )
-from src.model.parallelize import parallelize_deepseekv3  # type: ignore
 from src.tools import device_utils, utils  # type: ignore
 from src.tools.profiling import (  # type: ignore
     maybe_enable_memory_snapshot,
@@ -39,6 +33,11 @@ from src.components.dataloader import (
     BaseDataLoader,
     DataloaderExhaustedError,
 )
+from src.components.loss import (
+    IGNORE_INDEX,
+    LossFunction,
+    build_cross_entropy_loss,
+)
 from src.components.tokenizer import DeepSeekV3Tokenizer
 from src.config import TORCH_DTYPE_MAP, JobConfig
 from src.config.default_configs import (
@@ -50,6 +49,7 @@ from src.distributed import ParallelDims
 from src.distributed import utils as dist_utils  # type: ignore
 from src.distributed.pipeline_parallel import pipeline_llm
 from src.model.model import DeepSeekV3Model
+from src.model.parallelize import parallelize_deepseekv3  # type: ignore
 
 
 class Trainer(Stateful):
@@ -180,7 +180,7 @@ class Trainer(Stateful):
                 job_config,
                 self.device,
                 model_args.n_layers,
-                parallelize_deepseekv3,
+                parallelize_deepseekv3, # pyright: ignore[reportArgumentType]
                 self.loss_fn,
             )
             # when PP is enabled, `model` obj is no longer used after this point, model_parts is used instead

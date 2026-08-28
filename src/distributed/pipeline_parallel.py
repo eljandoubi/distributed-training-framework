@@ -4,7 +4,6 @@ from collections.abc import Callable
 
 import torch
 from loguru import logger
-from src.components.loss import LossFunction  # type: ignore
 from torch import nn
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.pipelining import PipelineStage
@@ -16,6 +15,7 @@ from torch.distributed.pipelining.schedules import (
     get_schedule_class,
 )
 
+from src.components.loss import LossFunction
 from src.config import JobConfig
 from src.distributed import ParallelDims
 
