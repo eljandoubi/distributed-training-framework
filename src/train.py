@@ -46,10 +46,10 @@ from src.config.default_configs import (
 from src.config.job_config import Parallelism
 from src.dataset.hf_datasets import build_hf_dataloader
 from src.distributed import ParallelDims
-from src.distributed import utils as dist_utils  # type: ignore
+from src.distributed import utils as dist_utils
 from src.distributed.pipeline_parallel import pipeline_llm
 from src.model.model import DeepSeekV3Model
-from src.model.parallelize import parallelize_deepseekv3  # type: ignore
+from src.model.parallelize import parallelize_deepseekv3
 
 
 class Trainer(Stateful):
