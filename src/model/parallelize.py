@@ -1,6 +1,5 @@
 import torch
 from loguru import logger
-from src.distributed.activation_checkpoint import apply_ac  # type: ignore
 from src.distributed.expert_parallel import apply_moe_ep_tp  # type: ignore
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import Replicate, Shard
@@ -15,7 +14,8 @@ from torch.distributed.tensor.parallel import (
 
 from src.config import TORCH_DTYPE_MAP, JobConfig
 from src.config.job_config import Compile as CompileConfig
-from src.distributed import NoParallel, ParallelDims  # type: ignore
+from src.distributed import NoParallel, ParallelDims
+from src.distributed.activation_checkpoint import apply_ac
 from src.distributed.model_parallel import apply_ddp, apply_fsdp
 from src.model.model import DeepSeekV3Model
 
