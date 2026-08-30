@@ -13,10 +13,6 @@ from src.components.lr_scheduler import (  # type: ignore
     LRSchedulersContainer,
     build_lr_schedulers,
 )
-from src.components.metrics import (  # type: ignore
-    MetricsProcessor,
-    collect_parameter_norm_metrics,
-)
 from src.components.optimizer import (  # type: ignore
     OptimizersContainer,
     build_optimizers_with_moe_load_balancing,
@@ -37,6 +33,10 @@ from src.components.loss import (
     IGNORE_INDEX,
     LossFunction,
     build_cross_entropy_loss,
+)
+from src.components.metrics import (
+    MetricsProcessor,
+    collect_parameter_norm_metrics,
 )
 from src.components.tokenizer import DeepSeekV3Tokenizer
 from src.config import TORCH_DTYPE_MAP, JobConfig

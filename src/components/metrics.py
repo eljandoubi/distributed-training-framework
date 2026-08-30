@@ -88,9 +88,7 @@ class DeviceMemoryMonitor:
         device_module.empty_cache()
 
     def _to_gib(self, memory_in_bytes):
-        # NOTE: GiB (gibibyte) is 1024, vs GB is 1000
-        _gib_in_bytes = 1024 * 1024 * 1024
-        memory_in_gib = memory_in_bytes / _gib_in_bytes
+        memory_in_gib = memory_in_bytes / (1024**3)
         return memory_in_gib
 
     def _to_pct(self, memory):
@@ -141,10 +139,10 @@ def build_device_memory_monitor():
 
 class BaseLogger:
     def log(self, metrics: dict[str, Any], step: int) -> None:
-        pass
+        raise NotImplementedError("BaseLogger does not implement log()")
 
     def close(self) -> None:
-        pass
+        raise NotImplementedError("BaseLogger does not implement close()")
 
 
 class WandBLogger(BaseLogger):
@@ -159,7 +157,7 @@ class WandBLogger(BaseLogger):
 
         self.wandb.init(
             entity=os.getenv("WANDB_TEAM", None),
-            project=os.getenv("WANDB_PROJECT", "torchfeather"),
+            project=os.getenv("WANDB_PROJECT", "distributed-training-deepseekv3"),
             name=os.getenv("WANDB_RUN_NAME", None),
             dir=log_dir,
             config=job_config.to_dict(),
