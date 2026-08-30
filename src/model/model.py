@@ -2,12 +2,12 @@
 import math
 
 import torch
-from src.model.attention import ScaledDotProductAttentionWrapper  # type: ignore
 from src.model.moe import FeedForward, MoE  # type: ignore
 from torch import nn
 
 from src.model.args import DeepSeekV3ModelArgs
 from src.model.rope import apply_rotary_emb, precompute_freqs_cis
+from src.model.sdpa import ScaledDotProductAttentionWrapper
 
 
 class Attention(nn.Module):
