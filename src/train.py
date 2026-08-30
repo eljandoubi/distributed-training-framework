@@ -9,14 +9,6 @@ from typing import Any, cast
 import torch
 from loguru import logger
 from src.components.checkpoint import CheckpointManager  # type: ignore
-from src.components.lr_scheduler import (  # type: ignore
-    LRSchedulersContainer,
-    build_lr_schedulers,
-)
-from src.components.optimizer import (  # type: ignore
-    OptimizersContainer,
-    build_optimizers_with_moe_load_balancing,
-)
 from src.tools import device_utils, utils  # type: ignore
 from src.tools.profiling import (  # type: ignore
     maybe_enable_memory_snapshot,
@@ -34,9 +26,17 @@ from src.components.loss import (
     LossFunction,
     build_cross_entropy_loss,
 )
+from src.components.lr_scheduler import (
+    LRSchedulersContainer,
+    build_lr_schedulers,
+)
 from src.components.metrics import (
     MetricsProcessor,
     collect_parameter_norm_metrics,
+)
+from src.components.optimizer import (
+    OptimizersContainer,
+    build_optimizers_with_moe_load_balancing,
 )
 from src.components.tokenizer import DeepSeekV3Tokenizer
 from src.config import TORCH_DTYPE_MAP, JobConfig
