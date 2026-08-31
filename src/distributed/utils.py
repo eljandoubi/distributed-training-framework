@@ -8,9 +8,6 @@ import torch
 import torch.distributed._functional_collectives as funcol
 import torch.distributed.distributed_c10d as c10d
 from loguru import logger
-from src.tools.device_utils import (  # pyright: ignore[reportMissingImports]
-    device_module,
-)
 from torch import distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
@@ -23,6 +20,9 @@ from torch.distributed.tensor.parallel import loss_parallel
 
 from src.config import TORCH_DTYPE_MAP
 from src.distributed.parallel_dims import ParallelDims
+from src.tools.device_utils import (
+    device_module,
+)
 
 
 def _dist_reduce(

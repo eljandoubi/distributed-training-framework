@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 
 from loguru import logger
-from src.tools.device_utils import device_type  # type: ignore
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+
+from src.tools.device_utils import device_type
 
 __all__ = ["ParallelDims"]
 

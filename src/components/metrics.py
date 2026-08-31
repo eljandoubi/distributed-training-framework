@@ -6,10 +6,6 @@ from typing import Any
 
 import torch
 from loguru import logger
-from src.tools.device_utils import (  # pyright: ignore[reportMissingImports]
-    device_module,
-    device_type,
-)
 from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 
@@ -22,6 +18,10 @@ from src.components.optimizer import (
 from src.config import JobConfig
 from src.distributed import ParallelDims
 from src.tools import utils
+from src.tools.device_utils import (
+    device_module,
+    device_type,
+)
 
 DeviceMemStats = namedtuple(
     "DeviceMemStats",
