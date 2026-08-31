@@ -1,7 +1,6 @@
-from src.model.moe.moe import MoEArgs  # type: ignore
-
 from src.config.job_config import JobConfig
 from src.model.args import DeepSeekV3ModelArgs
+from src.model.moe.moe import MoEArgs
 
 
 def get_deepseek_v3_model_args() -> DeepSeekV3ModelArgs:

@@ -1,6 +1,6 @@
 import torch
-import triton  # pyright: ignore[reportMissingImports]
-import triton.language as tl  # pyright: ignore[reportMissingImports]
+import triton
+import triton.language as tl
 
 __all__ = ["generate_permute_indices"]
 

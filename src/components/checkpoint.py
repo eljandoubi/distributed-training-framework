@@ -145,9 +145,9 @@ class CheckpointManager:
 
         self.save_future = None
         if self.config.async_mode == AsyncMode.DISABLED:
-            self.async_mode = AsyncMode.DISABLED  # ty:ignore[unresolved-attribute]
+            self.async_mode = AsyncMode.DISABLED  
         elif self.config.async_mode == AsyncMode.ASYNC:
-            self.async_mode = AsyncMode.ASYNC  # ty:ignore[unresolved-attribute]
+            self.async_mode = AsyncMode.ASYNC  
         else:
             raise NotImplementedError(
                 f"Unsupported async checkpoint mode: {self.config.async_mode}"
@@ -187,7 +187,7 @@ class CheckpointManager:
                 dcp_async_save(
                     state_dict,
                     checkpoint_id=checkpoint_id,
-                    process_group=self.async_save_pg, # type: ignore
+                    process_group=self.async_save_pg,  # pyright: ignore[reportArgumentType]
                 ),
             )
         else:
@@ -227,12 +227,12 @@ class CheckpointManager:
             return
 
         states = self._flattened_model_states_sd()
-        if self.async_mode == AsyncMode.ASYNC:  # ty:ignore[unresolved-attribute]
+        if self.async_mode == AsyncMode.ASYNC:  
             GarbageCollection.collect("GC collection invoked by checkpointer.")
             self.save_future = self.dcp_save(
                 states,
                 checkpoint_id=checkpoint_id,
-                async_mode=self.async_mode,  # ty:ignore[unresolved-attribute]
+                async_mode=self.async_mode,  
             )
             GarbageCollection.collect("GC collection invoked by checkpointer.")
         else:
@@ -357,7 +357,7 @@ class CheckpointManager:
         return curr_step % self.config.interval == 0
 
     def _async_wait(self) -> None:
-        if self.async_mode == AsyncMode.ASYNC:  # ty:ignore[unresolved-attribute]
+        if self.async_mode == AsyncMode.ASYNC: 
             if self.save_future is not None:
                 cast(Future[Any], self.save_future).result()
                 self.save_future = None

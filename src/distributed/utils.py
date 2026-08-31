@@ -306,9 +306,9 @@ def clip_grad_norm_(
         if math.isinf(norm_type):
             dist.all_reduce(total_norm, op=dist.ReduceOp.MAX, group=pp_mesh.get_group())
         else:
-            total_norm **= norm_type  # ty:ignore[unsupported-operator]
+            total_norm **= norm_type  
             dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=pp_mesh.get_group())
-            total_norm **= 1.0 / norm_type  # ty:ignore[unsupported-operator]
+            total_norm **= 1.0 / norm_type 
 
     torch.nn.utils.clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
     return total_norm
@@ -361,15 +361,15 @@ def _clip_grad_norm_with_ep(
         total_norm = torch.maximum(ep_grads_total_norm, non_ep_grads_total_norm)
     else:
         total_norm = ep_grads_total_norm**norm_type + non_ep_grads_total_norm**norm_type
-        total_norm **= 1.0 / norm_type  # ty:ignore[unsupported-operator]
+        total_norm **= 1.0 / norm_type  
 
     if pp_mesh is not None:
         if math.isinf(norm_type):
             dist.all_reduce(total_norm, op=dist.ReduceOp.MAX, group=pp_mesh.get_group())
         else:
-            total_norm **= norm_type  # ty:ignore[unsupported-operator]
+            total_norm **= norm_type  
             dist.all_reduce(total_norm, op=dist.ReduceOp.SUM, group=pp_mesh.get_group())
-            total_norm **= 1.0 / norm_type  # ty:ignore[unsupported-operator]
+            total_norm **= 1.0 / norm_type  
 
     torch.nn.utils.clip_grads_with_norm_(ep_params, max_norm, total_norm, foreach)
     torch.nn.utils.clip_grads_with_norm_(non_ep_params, max_norm, total_norm, foreach)
