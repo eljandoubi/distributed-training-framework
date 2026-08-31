@@ -2,10 +2,10 @@
 import math
 
 import torch
-from src.model.moe import FeedForward, MoE  # type: ignore
 from torch import nn
 
 from src.model.args import DeepSeekV3ModelArgs
+from src.model.moe import FeedForward, MoE
 from src.model.rope import apply_rotary_emb, precompute_freqs_cis
 from src.model.sdpa import ScaledDotProductAttentionWrapper
 

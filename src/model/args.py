@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 
 from loguru import logger
-from src.model.moe import MoEArgs  # type: ignore
 from torch import nn
+
+from src.model.moe import MoEArgs
 
 
 @dataclass
