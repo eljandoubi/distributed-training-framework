@@ -1,4 +1,3 @@
-
 import math
 
 import torch
@@ -20,11 +19,8 @@ class Attention(nn.Module):
         self.kv_lora_rank = model_args.kv_lora_rank
         self.qk_nope_head_dim = model_args.qk_nope_head_dim
         self.qk_rope_head_dim = model_args.qk_rope_head_dim
-        self.qk_head_dim = (
-            model_args.qk_nope_head_dim + model_args.qk_rope_head_dim
-        )
+        self.qk_head_dim = model_args.qk_nope_head_dim + model_args.qk_rope_head_dim
         self.v_head_dim = model_args.v_head_dim
-
 
         if self.q_lora_rank == 0:
             self.wq = nn.Linear(self.dim, self.n_heads * self.qk_head_dim, bias=False)
@@ -52,7 +48,6 @@ class Attention(nn.Module):
 
         self.inner_attention = ScaledDotProductAttentionWrapper()
 
-
     def forward(
         self,
         x: torch.Tensor,
@@ -66,13 +61,12 @@ class Attention(nn.Module):
             q = self.wq_a(x)
             q = self.wq_b(self.q_norm(q))
 
-
         q = q.view(batch_size, seq_len, -1, self.qk_head_dim)
         q_nope, q_pe = torch.split(
             q, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
         )
         q_pe = apply_rotary_emb(q_pe, freqs_cis)
-        
+
         q = torch.cat([q_nope, q_pe], dim=-1)
 
         kv = self.wkv_a(x)
@@ -111,7 +105,6 @@ class Attention(nn.Module):
         # apply Wo as usual
         # returns [batch_size, seq_len, dim]
         return self.wo(output)
-
 
     @torch.no_grad()
     def absorb_mla_weights(self) -> None:
@@ -156,8 +149,10 @@ class Attention(nn.Module):
 
         # [n_heads, kv_lora_rank, dim]
         wq_abs_nope = torch.bmm(
-            w_uk.float().transpose(1, 2), # [n_heads, qk_nope_head_dim, kv_lora_rank] -> [n_heads, kv_lora_rank, qk_nope_head_dim]
-            wq_nope.float(), # [n_heads, qk_nope_head_dim, dim]
+            w_uk.float().transpose(
+                1, 2
+            ),  # [n_heads, qk_nope_head_dim, kv_lora_rank] -> [n_heads, kv_lora_rank, qk_nope_head_dim]
+            wq_nope.float(),  # [n_heads, qk_nope_head_dim, dim]
         ).to(dtype=dtype)
 
         wq_abs = torch.cat(
@@ -211,7 +206,6 @@ class Attention(nn.Module):
         self.wo_abs.weight.copy_(w_o_abs)
         self.wo_abs.requires_grad_(False)
 
-
     def forward_absorbed(
         self,
         x: torch.Tensor,
@@ -245,7 +239,9 @@ class Attention(nn.Module):
         # latent_raw: [batch_size, seq_len, kv_lora_rank]
         # k_rope: [batch_size, seq_len, qk_rope_head_dim]
         latent_raw, k_rope = torch.split(
-            self.wkv_a(x), # [batch_size, seq_len, dim] -> [batch_size, seq_len, kv_lora_rank + qk_rope_head_dim]
+            self.wkv_a(
+                x
+            ),  # [batch_size, seq_len, dim] -> [batch_size, seq_len, kv_lora_rank + qk_rope_head_dim]
             [self.kv_lora_rank, self.qk_rope_head_dim],
             dim=-1,
         )
@@ -275,7 +271,9 @@ class Attention(nn.Module):
 
         # [batch_size, seq_len, n_heads * kv_lora_rank]
         latent_output = (
-            latent_output.transpose(1, 2) # [batch_size, n_heads, seq_len, kv_lora_rank] -> [batch_size, seq_len, n_heads, kv_lora_rank]
+            latent_output.transpose(
+                1, 2
+            )  # [batch_size, n_heads, seq_len, kv_lora_rank] -> [batch_size, seq_len, n_heads, kv_lora_rank]
             .contiguous()
             .view(
                 batch_size,
@@ -286,7 +284,6 @@ class Attention(nn.Module):
 
         # output: [batch_size, seq_len, dim]
         return self.wo_abs(latent_output)
-    
 
     def init_weights(
         self,
@@ -368,9 +365,7 @@ class TransformerBlock(nn.Module):
         std = init_std or self.weight_init_std
         self.attention.init_weights(std)
         if self.moe_enabled:
-            self.moe.init_weights(
-                init_std=std, buffer_device=buffer_device
-            )
+            self.moe.init_weights(init_std=std, buffer_device=buffer_device)
         else:
             self.feed_forward.init_weights(std)
 
@@ -404,13 +399,13 @@ class DeepSeekV3Model(nn.Module):
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = precompute_freqs_cis(self.model_args)
-        
+
         nn.init.normal_(self.tok_embeddings.weight)
 
         for layer in self.layers.values():
             if layer is not None:
-                layer.init_weights(init_std=init_std, buffer_device=buffer_device) # type: ignore
-        
+                layer.init_weights(init_std=init_std, buffer_device=buffer_device)  # type: ignore
+
         self.norm.reset_parameters()
 
         final_out_std = self.model_args.dim**-0.5
