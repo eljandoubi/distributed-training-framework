@@ -223,9 +223,14 @@ class CheckpointManager:
         """Load a distributed checkpoint from `checkpoint_id` into `state_dict`, then apply the flattened model state."""
         dcp.load(state_dict, checkpoint_id=checkpoint_id)  # pyright: ignore[reportPrivateImportUsage]
 
-        # TODO: Since we flatten the model states in state_dict, we need to manually call load_state_dict() for the model. Need to fix this.
+        # Model states are flattened into `state_dict` alongside optimizer/dataloader/etc. keys (see
+        # `_flattened_model_states_sd`), so `dcp.load` populates them in place but never calls
+        # `ModelWrapper.load_state_dict()` for us. Extract just the keys that belong to the model
+        # (as reported by its own cached state dict) and apply them explicitly.
         if MODEL in self.states:
-            self.states[MODEL].load_state_dict(state_dict)
+            model_keys = self.states[MODEL].state_dict().keys()
+            model_state_dict = {k: state_dict[k] for k in model_keys if k in state_dict}
+            self.states[MODEL].load_state_dict(model_state_dict)
 
     @torch.no_grad()
     def save(self, curr_step: int, last_step: bool = False) -> None:
