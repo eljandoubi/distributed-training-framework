@@ -1,3 +1,5 @@
+"""Rotary position embeddings (RoPE) with YaRN scaling for extending context length beyond pretraining length."""
+
 import math
 
 import torch
@@ -8,6 +10,7 @@ from src.model.args import DeepSeekV3ModelArgs
 def find_correction_dim(
     num_rotations: float, dim: int, base: float, max_seq_len: int
 ) -> float:
+    """Compute the RoPE dimension index at which a given rotation count occurs, per the YaRN paper."""
     return (
         dim
         * math.log(max_seq_len / (num_rotations * 2 * math.pi))
@@ -17,11 +20,13 @@ def find_correction_dim(
 def find_correction_range(
     low_rot: float, high_rot: float, dim: int, base: float, max_seq_len: int
 ) -> tuple[int, int]:
+    """Return the [low, high] RoPE dimension range to which YaRN interpolation should be applied."""
     low = math.floor(find_correction_dim(low_rot, dim, base, max_seq_len))
     high = math.ceil(find_correction_dim(high_rot, dim, base, max_seq_len))
     return max(low, 0), min(high, dim - 1)
 
 def linear_ramp_factor(min: float, max: float, dim: int) -> torch.Tensor:
+    """Build a linear ramp from 0 to 1 over `[min, max]`, clamped outside that range, used to blend YaRN-scaled and unscaled frequencies."""
     if min == max:
         max += 0.001
     linear_func = (torch.arange(dim, dtype=torch.float32) - min) / (max - min)
@@ -29,6 +34,7 @@ def linear_ramp_factor(min: float, max: float, dim: int) -> torch.Tensor:
     return ramp_func
 
 def precompute_freqs_cis(args: DeepSeekV3ModelArgs) -> torch.Tensor:
+    """Precompute the complex-exponential RoPE frequency table (with YaRN scaling if the sequence length exceeds the original training length)."""
     dim = args.qk_rope_head_dim
     seqlen = args.max_seq_len
     beta_fast = args.beta_fast
@@ -59,6 +65,7 @@ def precompute_freqs_cis(args: DeepSeekV3ModelArgs) -> torch.Tensor:
 
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+    """Apply precomputed rotary embeddings to `x` by treating adjacent pairs of its last dimension as complex numbers."""
     dtype = x.dtype
     x = torch.view_as_complex(x.float().view(*x.shape[:-1], -1, 2))
     freqs_cis = freqs_cis.view(1, x.size(1), 1, x.size(-1))

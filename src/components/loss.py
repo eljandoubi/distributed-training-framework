@@ -1,3 +1,5 @@
+"""Cross-entropy loss with token-based (sum) reduction, so callers can normalize by a global valid-token count."""
+
 from collections.abc import Callable
 
 import torch
@@ -22,6 +24,7 @@ def cross_entropy_loss(pred: torch.Tensor, labels: torch.Tensor) -> torch.Tensor
 
 
 def build_cross_entropy_loss(job_config: JobConfig):
+    """Return the cross-entropy loss function, optionally compiled per `job_config.compile`."""
     loss_fn = cross_entropy_loss
     if job_config.compile.enable and "loss" in job_config.compile.components:
         logger.info("Compiling the loss function with torch.compile")

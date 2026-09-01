@@ -1,3 +1,5 @@
+"""Learning-rate scheduler container implementing a warmup-stable-decay (WSD) schedule shared across all model-part optimizers."""
+
 import copy
 import functools
 import math
@@ -18,9 +20,12 @@ __all__ = [
 
 
 class LRSchedulersContainer(Stateful):
+    """Holds one `LambdaLR` scheduler per optimizer (one per model part) and steps/checkpoints them together."""
+
     schedulers: list[LRScheduler]
 
     def __init__(self, optimizers: OptimizersContainer, lr_lambda: Callable) -> None:
+        """Create one `LambdaLR` scheduler per optimizer in `optimizers`, all driven by the same `lr_lambda`."""
         assert len(optimizers) > 0, (
             "Must have at least one optimizer to create LRScheduler"
         )
@@ -34,14 +39,17 @@ class LRSchedulersContainer(Stateful):
         return len(self.schedulers)
 
     def step(self) -> None:
+        """Advance every wrapped scheduler by one step."""
         for scheduler in self.schedulers:
             scheduler.step()
 
     def state_dict(self) -> dict[str, Any]:
+        """Return the state dict of the first scheduler (all schedulers share the same state)."""
         # While there may be multiple schedulers, we only save the first one because the state_dict is the same for all. See the limitations section in the docstring.
         return self.schedulers[0].state_dict()
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Load the same state dict into every wrapped scheduler."""
         # Load the same state_dict for all schedulers. The key value we're concerned within ``LRScheduler.state_dict()`` is ``last_epoch``, which is an integer that is immutable. As long as ``training.steps`` and ``lr_scheduler.warmup_steps`` in ``job_config`` remain unchanged when resuming from a checkpoint, this approach is safe. We call ``copy()`` here to ensure extra safety.
         for scheduler in self.schedulers:
             scheduler.load_state_dict(copy.deepcopy(state_dict))
@@ -52,6 +60,7 @@ def build_lr_schedulers(
     lr_scheduler_config: LRSchedulerConfig,
     training_steps: int,
 ) -> LRSchedulersContainer:
+    """Build a warmup-stable-decay LR schedule from `lr_scheduler_config` and attach it to `optimizers`."""
     warmup_steps = int(lr_scheduler_config.warmup_steps)
 
     if warmup_steps > training_steps:
@@ -85,6 +94,7 @@ def build_lr_schedulers(
         lr_decay_type: str,
         min_lr_factor: float,
     ):
+        """Compute the LR multiplier for `current_step` under linear warmup, a stable plateau, and the configured decay curve."""
         warmup_stable_steps = warmup_steps + stable_steps
         if current_step < warmup_steps:
             # linear warmup

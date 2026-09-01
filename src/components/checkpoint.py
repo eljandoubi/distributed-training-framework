@@ -1,3 +1,5 @@
+"""Distributed checkpoint save/load management, including async checkpointing and background purge of stale checkpoints."""
+
 import enum
 import functools
 import os
@@ -39,25 +41,32 @@ CHECKPOINT_FOLDER_FORMAT = r"step-(\d+)"
 
 
 class AsyncMode(str, enum.Enum):
+    """Whether checkpoint saving blocks the training loop or runs asynchronously in the background."""
+
     DISABLED = "disabled"
     ASYNC = "async"
 
 
 class ModelWrapper(Stateful):
+    """Flattens the state dicts of one or more model parts into a single `Stateful`-compatible mapping for checkpointing."""
+
     def __init__(self, model: nn.Module | list[nn.Module]) -> None:
         self.model = [model] if isinstance(model, nn.Module) else model
         self.cache_state_dict = self._get_state_dict()
 
     def _get_state_dict(self) -> dict[str, Any]:
+        """Merge each model part's state dict into a single flat dict."""
         state_dict = {
             k: v for sd in map(get_model_state_dict, self.model) for k, v in sd.items()
         }
         return state_dict
 
     def state_dict(self) -> dict[str, Any]:
+        """Return the cached flattened model state dict."""
         return self.cache_state_dict
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Load `state_dict` into every wrapped model part and refresh the cached state dict."""
         func = functools.partial(
             set_model_state_dict,
             model_state_dict=state_dict,
@@ -69,10 +78,11 @@ class ModelWrapper(Stateful):
 
 
 class TerminateSentinel:
-    pass
+    """Sentinel value placed on the purge queue to signal the background purge thread to exit."""
 
 
 def purge_thread(purge_queue: queue.Queue):
+    """Background worker loop that deletes stale checkpoint directories pulled from `purge_queue` until a `TerminateSentinel` is received."""
     try:
         while True:
             path = purge_queue.get()
@@ -93,6 +103,8 @@ def purge_thread(purge_queue: queue.Queue):
 
 
 class CheckpointManager:
+    """Saves and loads training state (model, optimizer, LR scheduler, dataloader, trainer state) via `torch.distributed.checkpoint`, with optional async saving and stale-checkpoint purging."""
+
     def __init__(
         self,
         dataloader: BaseDataLoader | None,
@@ -161,6 +173,7 @@ class CheckpointManager:
         self.close()
 
     def close(self):
+        """Wait for any pending async save, destroy the async checkpoint process group, and stop the purge thread."""
         if self.config.enable:
             if self.save_future is not None:
                 self._async_wait()
@@ -179,6 +192,7 @@ class CheckpointManager:
         async_mode: AsyncMode,
         enable_garbage_collection: bool = False,
     ) -> Future[Any] | Metadata:
+        """Save `state_dict` to `checkpoint_id`, synchronously or asynchronously depending on `async_mode`."""
         ret = None
 
         if async_mode == AsyncMode.ASYNC:
@@ -206,6 +220,7 @@ class CheckpointManager:
         state_dict: dict[str, Any],
         checkpoint_id: str,
     ) -> None:
+        """Load a distributed checkpoint from `checkpoint_id` into `state_dict`, then apply the flattened model state."""
         dcp.load(state_dict, checkpoint_id=checkpoint_id)  # pyright: ignore[reportPrivateImportUsage]
 
         # TODO: Since we flatten the model states in state_dict, we need to manually call load_state_dict() for the model. Need to fix this.
@@ -214,6 +229,7 @@ class CheckpointManager:
 
     @torch.no_grad()
     def save(self, curr_step: int, last_step: bool = False) -> None:
+        """Save a checkpoint for `curr_step` if the save policy (interval/first-step/last-step) says to, then purge stale ones."""
         if not self._should_save(curr_step, last_step):
             return
 
@@ -250,6 +266,7 @@ class CheckpointManager:
 
     @torch.no_grad()
     def load(self, step: int = -1) -> bool:
+        """Load the checkpoint at `step` (or the latest, or `initial_load_path`); return whether anything was loaded."""
         if not self.config.enable:
             return False
 
@@ -295,6 +312,7 @@ class CheckpointManager:
         return True
 
     def _find_load_step(self, folder: str = "") -> int:
+        """Return the highest step number among valid checkpoint directories in `folder`, or -1 if none exist."""
         folder = folder if folder else self.folder
         pattern = CHECKPOINT_FOLDER_FORMAT
         step_counts = []
@@ -312,12 +330,14 @@ class CheckpointManager:
         return max(step_counts)
 
     def _create_checkpoint_id(self, step: int, folder: str = "") -> str:
+        """Build the checkpoint directory path for `step` within `folder` (defaults to `self.folder`)."""
         folder = folder if folder else self.folder
         return os.path.join(folder, f"step-{step}")
 
     def _flattened_model_states_sd(
         self, state_dict: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Flatten the nested model state dict into the top-level states mapping (required by DCP's flat format)."""
         states = state_dict if state_dict is not None else self.states
         sd = {k: v for k, v in states.items() if k != MODEL}
         if MODEL in states:
@@ -325,6 +345,7 @@ class CheckpointManager:
         return sd
 
     def _states_to_load(self, model_only: bool) -> dict[str, Any]:
+        """Return either just the model state (for the initial-weights-only checkpoint) or the full flattened state."""
         # For the first step, we will only load the model.
         if model_only:
             return self.states[MODEL].state_dict()
@@ -334,6 +355,7 @@ class CheckpointManager:
         return states_to_load
 
     def _save_last_step(self, curr_step: int) -> None:
+        """Synchronously save a full checkpoint at the final training step (skips async saving for simplicity/reliability)."""
         logger.info(f"Saving a full checkpoint at last step, step {curr_step}.")
         states = self._flattened_model_states_sd()
 
@@ -345,6 +367,7 @@ class CheckpointManager:
         )
 
     def _should_save(self, curr_step: int, last_step: bool = False) -> bool:
+        """Decide whether to save a checkpoint at `curr_step` based on the configured interval and first/last-step flags."""
         if not self.config.enable:
             return False
 
@@ -357,6 +380,7 @@ class CheckpointManager:
         return curr_step % self.config.interval == 0
 
     def _async_wait(self) -> None:
+        """Block until any in-flight async checkpoint save completes."""
         if self.async_mode == AsyncMode.ASYNC: 
             if self.save_future is not None:
                 cast(Future[Any], self.save_future).result()
@@ -367,6 +391,7 @@ class CheckpointManager:
             )
 
     def _purge_stale_checkpoints(self):
+        """Enqueue all but the `keep_latest_k` most recent checkpoints for background deletion."""
         if (
             self.config.keep_latest_k > 0
             and dist.get_rank() == 0

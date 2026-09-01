@@ -1,3 +1,5 @@
+"""Entry point and `Trainer` orchestration for distributed DeepSeek-V3 pretraining across all supported parallelism strategies."""
+
 import contextlib
 import os
 import signal
@@ -53,6 +55,8 @@ from src.tools.profiling import (
 
 
 class Trainer(Stateful):
+    """Owns the model, optimizer, dataloader, and checkpointer, and drives the distributed training loop."""
+
     job_config: JobConfig
     parallel_dims: ParallelDims
 
@@ -78,6 +82,7 @@ class Trainer(Stateful):
 
     @record
     def __init__(self, job_config: JobConfig):
+        """Initialize distributed process groups, build the model/dataloader/optimizer/checkpointer, and apply all configured parallelisms."""
         self.job_config = job_config
 
         device_module, device_type = (
@@ -263,6 +268,7 @@ class Trainer(Stateful):
     def _create_parallel_dims(
         self, parallelism_config: Parallelism, world_size: int
     ) -> ParallelDims:
+        """Build the `ParallelDims` mesh spec from the job's parallelism config."""
         return ParallelDims(
             dp_shard=parallelism_config.data_parallel_shard_degree,
             dp_replicate=parallelism_config.data_parallel_replicate_degree,
@@ -277,6 +283,7 @@ class Trainer(Stateful):
     def batch_generator(
         self, data_iterable: Iterable[tuple[dict[str, torch.Tensor], torch.Tensor]]
     ) -> Iterator[tuple[dict[str, torch.Tensor], torch.Tensor]]:
+        """Yield device-resident (input, labels) batches from `data_iterable`, tracking token counts and data-loading time."""
         device_type = device_utils.device_type
         data_iterator = iter(data_iterable)
 
@@ -311,6 +318,7 @@ class Trainer(Stateful):
         labels: torch.Tensor,
         global_valid_tokens: float | torch.Tensor,
     ) -> torch.Tensor:
+        """Run one microbatch's forward and backward pass (PP or non-PP), returning the loss normalized by `global_valid_tokens`."""
         model_parts = self.model_parts
         parallel_dims = self.parallel_dims
 
@@ -386,6 +394,7 @@ class Trainer(Stateful):
     def train_step(
         self, data_iterator: Iterator[tuple[dict[str, torch.Tensor], torch.Tensor]]
     ):
+        """Run one optimizer step: gradient accumulation over microbatches, gradient clipping, optimizer/LR-scheduler step, and metrics logging."""
         self.optimizers.zero_grad()
         # Save the current step learning rate for logging
         lr = self.lr_schedulers.schedulers[0].get_last_lr()[0]
@@ -485,6 +494,7 @@ class Trainer(Stateful):
 
     @record
     def train(self):
+        """Run the full training loop: load checkpoint, iterate steps, save checkpoints, and handle profiling."""
         job_config = self.job_config
 
         self.checkpointer.load(step=job_config.checkpoint.load_step)
@@ -539,16 +549,20 @@ class Trainer(Stateful):
             logger.info("Training completed")
 
     def should_continue_training(self) -> bool:
+        """Return whether the configured number of training steps has not yet been reached."""
         return self.step < self.job_config.training.steps
 
     def state_dict(self) -> dict[str, Any]:
+        """Return the trainer's checkpoint-relevant state (current step and tokens seen)."""
         return {"step": self.step, "ntokens_seen": self.ntokens_seen}
 
     def load_state_dict(self, state_dict: dict[str, Any]):
+        """Restore the trainer's step and token counters from a checkpoint."""
         self.step = state_dict["step"]
         self.ntokens_seen = state_dict["ntokens_seen"]
 
     def close(self) -> None:
+        """Close the checkpointer and metrics processor, if initialized."""
         if hasattr(self, "checkpointer") and self.checkpointer:
             self.checkpointer.close()
         if hasattr(self, "metrics_processor") and self.metrics_processor:
@@ -556,6 +570,7 @@ class Trainer(Stateful):
 
 
 def _arm_successful_shutdown_watchdog(timeout_seconds: int = 30) -> None:
+    """Arm a SIGALRM that forcibly terminates the process if shutdown hangs beyond `timeout_seconds`."""
     logger.info(
         "Arming post-training shutdown watchdog (SIGALRM) for {} seconds",
         timeout_seconds,
@@ -565,6 +580,7 @@ def _arm_successful_shutdown_watchdog(timeout_seconds: int = 30) -> None:
 
 
 def _shutdown_after_successful_training(trainer: Trainer) -> None:
+    """Arm the shutdown watchdog, close the trainer, and destroy the process group after a successful training run."""
     # Arm the watchdog before any close/destroy work begins so it can cover
     # WandB/checkpoint cleanup, process-group teardown, and any later interpreter shutdown hang.  Uses SIGALRM+SIG_DFL so the kernel terminates the process regardless of GIL state or Python finalization.
     # If the process exits normally before the timeout, the kernel discards the pending alarm automatically.

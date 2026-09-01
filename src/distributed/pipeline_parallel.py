@@ -1,3 +1,5 @@
+"""Pipeline Parallel setup: splitting the model into stages, building the pipeline schedule, and generating per-stage module FQNs."""
+
 import copy
 import math
 from collections.abc import Callable
@@ -37,6 +39,10 @@ def pipeline_llm(
     loss_fn: LossFunction,
 ) -> tuple[_PipelineSchedule, list[nn.Module], bool, bool]:
 
+    """Split `model` into pipeline stages, apply SPMD parallelisms to each stage, and build the pipeline schedule.
+
+    Returns (schedule, model_parts, has_first_stage, has_last_stage).
+    """
     pp_mesh = parallel_dims.get_mesh("pp")
 
     # Determine the number of virtual stages based on schedule type
@@ -122,6 +128,7 @@ def pipeline_llm(
 def build_pipeline_schedule(
     job_config: JobConfig, stages: list[PipelineStage], loss_fn: Callable
 ) -> _PipelineSchedule:
+    """Instantiate the configured pipeline schedule (single- or multi-stage) for the given `stages`."""
     schedule_class = get_schedule_class(
         job_config.parallelism.pipeline_parallel_schedule
     )
@@ -167,6 +174,7 @@ def generate_llm_fqn_per_model_part(
     input_weight: int = 1,
     output_weight: int = 1,
 ) -> list[list[str]]:
+    """Distribute the model's layer FQNs evenly across `num_stages` pipeline stages, accounting for embedding/output layer weights."""
     assert num_stages >= 1, num_stages
 
     if num_stages == 1:
@@ -228,6 +236,7 @@ def _build_stage_from_modules(
     num_stages: int,
     device: torch.device,
 ) -> tuple[PipelineStage, nn.Module]:
+    """Deep-copy `whole_model`, prune it down to only the modules listed in `module_names`, and wrap it in a `PipelineStage`."""
     # make a copy of the model so we prune away stuff
     model = copy.deepcopy(whole_model)
 
@@ -287,6 +296,7 @@ def pipeline_module_split(
     device: torch.device,
     module_names_per_stage: list[list[str]],
 ) -> tuple[list[PipelineStage], list[nn.Module]]:
+    """Build this rank's local `PipelineStage`s (and pruned model chunks) according to the schedule's stage-placement style."""
     pp_rank = pp_mesh.get_local_rank()
     pp_degree = pp_mesh.size()
 

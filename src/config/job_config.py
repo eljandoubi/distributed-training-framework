@@ -1,3 +1,5 @@
+"""Job configuration dataclasses: job/profiling/metrics/model/optimizer/lr-scheduler/training/parallelism/checkpoint/compile/comm settings."""
+
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -6,11 +8,15 @@ from src.model.args import DeepSeekV3ModelArgs
 
 @dataclass
 class Job:
+    """Top-level job settings, e.g. where outputs are written."""
+
     dump_folder: str = "./src/outputs"
 
 
 @dataclass
 class Profiling:
+    """PyTorch profiler and memory-snapshot settings."""
+
     enable_profiling: bool = False
     save_traces_folder: str = "profile_traces"
     profile_freq: int = 10
@@ -22,6 +28,8 @@ class Profiling:
 
 @dataclass
 class Metrics:
+    """Metrics logging settings."""
+
     log_freq: int = 10
     save_folder: str = "metrics"
     save_for_all_ranks: bool = False
@@ -29,12 +37,16 @@ class Metrics:
 
 @dataclass
 class Model:
+    """Model architecture and asset location settings."""
+
     hf_assets_path: str = ""
     args: DeepSeekV3ModelArgs = field(default_factory=DeepSeekV3ModelArgs)
 
 
 @dataclass
 class Optimizer:
+    """Optimizer hyperparameters."""
+
     name: str = "AdamW"
     lr: float = 8e-4
     beta1: float = 0.9
@@ -46,6 +58,8 @@ class Optimizer:
 
 @dataclass
 class LRScheduler:
+    """Learning-rate warmup-stable-decay schedule settings."""
+
     warmup_steps: int = 200
 
     decay_ratio: float | None = None
@@ -75,6 +89,8 @@ class LRScheduler:
 
 @dataclass
 class Training:
+    """Core training loop settings: dataset, batch size, sequence length, dtype, and determinism."""
+
     dataset: str = "fineweb"
 
     dataset_path: str | None = None
@@ -119,6 +135,8 @@ class Training:
 
 @dataclass
 class Parallelism:
+    """Degrees and options for every parallelism strategy: DP (replicate/shard), TP, PP, CP, and EP/ETP."""
+
     data_parallel_replicate_degree: int = 1
     """
     The `data_parallel_replicate_degree` argument specifies the degree of
@@ -269,6 +287,8 @@ class Parallelism:
 
 @dataclass
 class Checkpoint:
+    """Checkpoint save/load settings."""
+
     enable: bool = False
 
     folder: str = "checkpoint"
@@ -286,6 +306,7 @@ class Checkpoint:
     enable_first_step_checkpoint: bool = False
 
     def __post_init__(self) -> None:
+        """Validate that `keep_latest_k` is not 1 (the last checkpoint may still be mid-write)."""
         if self.keep_latest_k == 1:
             raise ValueError(
                 "The last checkpoint may still be in the process of being written, so keep_latest_k must be at least 2."
@@ -294,6 +315,8 @@ class Checkpoint:
 
 @dataclass
 class ActivationCheckpoint:
+    """Activation checkpointing mode and options."""
+
     mode: Literal["selective", "full", "none"] = "selective"
 
     selective_ac_option: str = "2"
@@ -319,6 +342,8 @@ class ActivationCheckpoint:
 
 @dataclass
 class Compile:
+    """torch.compile settings."""
+
     enable: bool = False
 
     components: list[Literal["model", "loss"]] = field(
@@ -329,6 +354,8 @@ class Compile:
 
 @dataclass
 class Comm:
+    """Distributed communication timeout settings."""
+
     init_timeout_seconds: int = 300
     """Timeout for communication operations, during initialization and first train step."""
 
@@ -361,4 +388,5 @@ class JobConfig:
     comm: Comm = field(default_factory=Comm)
 
     def to_dict(self) -> dict[str, Any]:
+        """Recursively convert the config to a plain nested dict (for logging, e.g. to WandB)."""
         return asdict(self)

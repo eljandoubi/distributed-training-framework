@@ -1,3 +1,5 @@
+"""Parallelization strategies for MoE routed experts: Tensor Parallel, Expert Parallel (token-level all-to-all dispatch), and their combination."""
+
 from __future__ import annotations
 
 from typing import Any, cast
@@ -30,6 +32,8 @@ from src.model.moe.utils import _permute, _unpermute
 
 
 class TensorParallel(ParallelStyle):
+    """Shards each expert's weights column/row-wise across a Tensor Parallel mesh (used when EP is disabled)."""
+
     def _prepare_input_fn(self, _mod, inputs, device_mesh):
         routed_input, num_tokens_per_expert = inputs
         # This round-trip is a forward no-op. The expert computation uses local tensors,
@@ -72,6 +76,8 @@ class TensorParallel(ParallelStyle):
 
 
 class ExpertParallel(ParallelStyle):
+    """Shards whole experts across an Expert Parallel mesh, dispatching/combining routed tokens via all-to-all."""
+
     def __init__(self):
         super().__init__()
         self.input_splits = None
@@ -80,6 +86,7 @@ class ExpertParallel(ParallelStyle):
         self.permuted_indices = None
 
     def _token_dispatch(self, mod, inputs, device_mesh):
+        """All-to-all dispatch routed tokens to the EP rank owning their assigned expert, then permute into local-expert-major order."""
         routed_input, num_tokens_per_expert = inputs
 
         # Example: DP-shard = 4, TP = 2, EP = 4, ETP disabled, top_k = 4, 16 tokens per data parallel coordinate, and 12 experts.
@@ -239,6 +246,7 @@ class ExpertParallel(ParallelStyle):
 
     # performing all-to-all combine on the output
     def _token_combine(self, _mod, routed_output, device_mesh):
+        """Undo the local-expert-major permutation and all-to-all the outputs back to the originating tokens."""
         routed_output = _unpermute(
             routed_output, self.input_shape, self.permuted_indices
         )
@@ -264,6 +272,7 @@ class ExpertParallel(ParallelStyle):
 
 
 class ExpertTensorParallel(ExpertParallel):
+    """Combines Expert Parallel with Tensor Parallel: experts are split across EP ranks and further sliced across TP ranks within each EP group."""
 
     def __init__(self, ep_etp_mesh: DeviceMesh):
         super().__init__()
@@ -308,6 +317,7 @@ class ExpertTensorParallel(ExpertParallel):
             )
 
     def _token_combine(self, _mod, routed_output, device_mesh):
+        """Combine outputs using the EP-only mesh (the ETP dimension is not involved in the all-to-all)."""
         return super()._token_combine(
             _mod,
             routed_output,
@@ -328,10 +338,13 @@ class ExpertTensorParallel(ExpertParallel):
 
 
 class ReordererSequenceParallel(ParallelStyle):
+    """Splits router outputs across the TP group (Sequence-Parallel style) when TP ranks are borrowed for Expert Parallel without ETP."""
+
     def __init__(self):
         super().__init__()
 
     def _prepare_input_fn(self, _mod, inputs, device_mesh):
+        """Split the router's top-scores/selected-experts tensors evenly across the TP mesh's local dimension."""
         # shape (batch_size*seq_len, top_k)
         top_scores, selected_experts_indices = inputs
         num_tokens, _ = top_scores.shape
@@ -356,6 +369,7 @@ class ReordererSequenceParallel(ParallelStyle):
         return top_scores, selected_experts_indices
 
     def _prepare_output_fn(self, mod, outputs, device_mesh):
+        """Rewrite the reorderer's local token indices as global indices by adding this rank's offset."""
         # shape (batch_size * seq_len * top_k // tp_degree)
         top_scores, token_indices_experts_sorted, num_tokens_per_expert = outputs
 
@@ -390,6 +404,7 @@ def apply_moe_ep_tp(
     etp_enabled: bool,
     ep_etp_mesh: DeviceMesh | None = None,
 ):
+    """Apply the appropriate combination of Tensor/Expert/Expert-Tensor Parallel to each MoE layer's router, shared experts, and routed experts."""
     assert ep_mesh is not None or tp_mesh is not None
     if ep_mesh is not None and etp_enabled:
         assert ep_etp_mesh is not None

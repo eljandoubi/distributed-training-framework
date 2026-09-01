@@ -1,3 +1,5 @@
+"""Package init: exports `NoParallel` style and `ParallelDims` mesh builder used across parallelization modules."""
+
 from functools import partial
 
 from torch import nn
@@ -16,6 +18,8 @@ __all__ = ["NoParallel", "ParallelDims"]
 
 
 class NoParallel(ParallelStyle):
+    """Passthrough `ParallelStyle` that replicates a module's weights and only handles input/output layout conversion (no sharding)."""
+
     def __init__(
         self,
         *,
@@ -33,6 +37,7 @@ class NoParallel(ParallelStyle):
 
     @staticmethod
     def _prepare_input_fn(input_layout, desired_input_layout, mod, inputs, device_mesh):
+        """Wrap the module input as a DTensor with `input_layout` and redistribute it to `desired_input_layout`."""
         # annotate module input placements/sharding with input_layouts
         input_tensor = inputs[0]
         if not isinstance(input_tensor, DTensor):
@@ -55,6 +60,7 @@ class NoParallel(ParallelStyle):
         outputs,
         device_mesh,
     ):
+        """Redistribute the module output to `output_layout`, optionally converting it back to a local tensor."""
         if outputs.placements != (output_layout,):
             outputs = outputs.redistribute(placements=(output_layout,), async_op=True)
         # back to local tensor
@@ -63,6 +69,7 @@ class NoParallel(ParallelStyle):
         return outputs
 
     def _apply(self, module: nn.Module, device_mesh: DeviceMesh) -> nn.Module:
+        """Register the input/output preparation hooks on `module` (weights are left replicated)."""
         return distribute_module(
             module,
             device_mesh,

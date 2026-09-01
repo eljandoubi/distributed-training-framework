@@ -1,3 +1,5 @@
+"""Activation checkpointing (AC) wrappers: full, per-layer selective, and per-op selective checkpointing policies."""
+
 from collections import defaultdict
 from typing import cast
 
@@ -14,6 +16,7 @@ _layer_sac_count = 0
 
 
 def _apply_layer_sac(module: nn.Module, ac_config: ACConfig) -> nn.Module:
+    """Wrap every Nth transformer layer with checkpointing, per `ac_config.selective_ac_option`'s frequency."""
     global _layer_sac_count
     _layer_sac_count += 1
     ac_freq = int(ac_config.selective_ac_option)
@@ -30,6 +33,7 @@ def _apply_op_sac(
     base_fqn: str | None = None,
     op_sac_save_list: set[torch._ops.OpOverload],
 ) -> nn.Module:
+    """Wrap `module` with per-op selective activation checkpointing, saving outputs of ops in `op_sac_save_list` (with mm outputs alternately recomputed)."""
     from torch.utils.checkpoint import (
         CheckpointPolicy,
         create_selective_checkpoint_contexts,
@@ -102,6 +106,7 @@ def _apply_op_sac(
 
 
 def _apply_full_ac(module: nn.Module, ac_config: ACConfig) -> nn.Module:
+    """Wrap `module` with full activation checkpointing (recompute the entire module on backward)."""
     return ptd_checkpoint_wrapper(module, preserve_rng_state=False)
 
 
@@ -113,6 +118,7 @@ def _apply_ac_to_transformer_block(
     model_compile_enabled: bool = False,
     op_sac_save_list: set[torch._ops.OpOverload] | None = None,
 ) -> nn.Module:
+    """Dispatch to the full, per-op-selective, or per-layer-selective AC wrapper based on `ac_config.mode`."""
     valid_ac_modes = ("full", "selective")
     if ac_config.mode not in valid_ac_modes:
         raise ValueError(
@@ -148,6 +154,7 @@ def apply_ac(
     op_sac_save_list: set[torch._ops.OpOverload] | None = None,
     base_folder: str = "",
 ) -> None:
+    """Apply the configured activation checkpointing mode to every transformer layer of `model`."""
     # Disable dynamo LRU cache to avoid assertion failures when PP sends multiple microbatches through the same SAC-wrapped layer.
     # See https://github.com/pytorch/pytorch/issues/166926
     torch._C._dynamo.eval_frame._set_lru_cache(False)  # pyright: ignore[reportAttributeAccessIssue] # ty:ignore[unresolved-attribute]

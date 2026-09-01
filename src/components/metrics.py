@@ -1,3 +1,5 @@
+"""Training metrics collection and logging: device memory monitoring, parameter/gradient norms, throughput/MFU, and WandB integration."""
+
 import os
 import time
 from collections import namedtuple
@@ -76,6 +78,8 @@ def collect_parameter_norm_metrics(
 
 
 class DeviceMemoryMonitor:
+    """Tracks peak device memory usage (active/reserved bytes, alloc retries, OOMs) between logging intervals."""
+
     def __init__(self, device: str = f"{device_type}:0"):
         self.device = torch.device(device)  # device object
         self.device_name = device_module.get_device_name(self.device)
@@ -88,13 +92,16 @@ class DeviceMemoryMonitor:
         device_module.empty_cache()
 
     def _to_gib(self, memory_in_bytes):
+        """Convert a byte count to gibibytes."""
         memory_in_gib = memory_in_bytes / (1024**3)
         return memory_in_gib
 
     def _to_pct(self, memory):
+        """Convert a byte count to a percentage of total device capacity."""
         return 100 * memory / self.device_capacity
 
     def get_peak_stats(self):
+        """Return peak active/reserved memory (GiB and %) plus alloc-retry/OOM counters since the last reset."""
         device_info = device_module.memory_stats(self.device)
 
         max_active = device_info.get("active_bytes.all.peak", -1)
@@ -125,10 +132,12 @@ class DeviceMemoryMonitor:
         )
 
     def reset_peak_stats(self):
+        """Reset the device's peak memory statistics counters."""
         device_module.reset_peak_memory_stats()
 
 
 def build_device_memory_monitor():
+    """Construct a `DeviceMemoryMonitor` and log the device's total memory capacity."""
     device_memory_monitor = DeviceMemoryMonitor(device_type)
     logger.info(
         f"{device_type.upper()} capacity: {device_memory_monitor.device_name} "
@@ -138,6 +147,8 @@ def build_device_memory_monitor():
 
 
 class BaseLogger:
+    """No-op metrics logger used on ranks that should not emit logs (e.g. non-designated PP ranks)."""
+
     def log(self, metrics: dict[str, Any], step: int) -> None:
         raise NotImplementedError("BaseLogger does not implement log()")
 
@@ -146,7 +157,10 @@ class BaseLogger:
 
 
 class WandBLogger(BaseLogger):
+    """Metrics logger that reports to Weights & Biases."""
+
     def __init__(self, log_dir: str, job_config: JobConfig, tag: str | None = None):
+        """Initialize a WandB run writing to `log_dir`, tagging metric keys with `tag` if provided."""
         # Import wandb here to avoid startup import
         import wandb
 
@@ -165,6 +179,7 @@ class WandBLogger(BaseLogger):
         logger.info("WandB logging enabled")
 
     def log(self, metrics: dict[str, Any], step: int) -> None:
+        """Log `metrics` to WandB at `step`, prefixing keys with `self.tag` if set."""
         wandb_metrics = {
             (k if self.tag is None else f"{self.tag}/{k}"): v
             for k, v in metrics.items()
@@ -172,6 +187,7 @@ class WandBLogger(BaseLogger):
         self.wandb.log(wandb_metrics, step=step)
 
     def close(self) -> None:
+        """Finish the active WandB run, if any."""
         if self.wandb.run is not None:
             self.wandb.finish()
 
@@ -180,6 +196,7 @@ def _get_metrics_rank(
     parallel_dims: ParallelDims,
     job_config: JobConfig,
 ) -> int:
+    """Return the global rank responsible for logging (rank 0, unless PP is enabled and loss is produced elsewhere)."""
     # Early return for non-pipeline-parallel configurations
     if not parallel_dims.pp_enabled:
         return 0
@@ -232,6 +249,8 @@ def _build_metric_logger(
 
 
 class MetricsProcessor:
+    """Aggregates and logs training metrics: loss, gradient norm, throughput/MFU, timing, and device memory."""
+
     logger: BaseLogger
     parallel_dims: ParallelDims
     job_config: JobConfig
@@ -253,6 +272,7 @@ class MetricsProcessor:
         parallel_dims: ParallelDims,
         tag: str | None = None,
     ):
+        """Set up the metric logger, device memory monitor, and per-log-interval accumulators."""
         self.logger = _build_metric_logger(job_config, parallel_dims, tag)
         self.parallel_dims = parallel_dims
         self.job_config = job_config
@@ -273,6 +293,7 @@ class MetricsProcessor:
         self.model_parts = None
 
     def should_log(self, step: int) -> bool:
+        """Return whether metrics should be logged at `step` (the first step, or every `log_freq` steps)."""
         return step == 1 or step % self.job_config.metrics.log_freq == 0
 
     def log(
@@ -283,6 +304,7 @@ class MetricsProcessor:
         grad_norm: float,
         extra_metrics: dict[str, Any] | None = None,
     ):
+        """Compute throughput/MFU/timing/memory metrics since the last log call and report them via `self.logger`."""
         assert self.num_flops_per_token > 0, "num_flops_per_token must be set"
 
         time_delta = time.perf_counter() - self.time_last_log
@@ -343,4 +365,5 @@ class MetricsProcessor:
         self.device_memory_monitor.reset_peak_stats()
 
     def close(self):
+        """Close the underlying metrics logger."""
         self.logger.close()

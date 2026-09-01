@@ -1,3 +1,5 @@
+"""Cross-cutting distributed-training utilities: reductions, determinism/seeding, Context Parallel setup, AMP, timeouts, and gradient clipping."""
+
 import contextlib
 import math
 import os
@@ -56,6 +58,7 @@ def dist_max(
     mesh: DeviceMesh,
     extra_pg: dist.ProcessGroup | None = None,
 ) -> int | float:
+    """All-reduce `x` with a MAX operation over `mesh` (and optionally `extra_pg` first)."""
     return _dist_reduce(
         x, reduceOp=c10d.ReduceOp.MAX.name, mesh=mesh, extra_pg=extra_pg
     )
@@ -66,6 +69,7 @@ def dist_sum(
     mesh: DeviceMesh,
     extra_pg: dist.ProcessGroup | None = None,
 ) -> int | float:
+    """All-reduce `x` with a SUM operation over `mesh` (and optionally `extra_pg` first)."""
     return _dist_reduce(
         x, reduceOp=c10d.ReduceOp.SUM.name, mesh=mesh, extra_pg=extra_pg
     )
@@ -76,6 +80,7 @@ def dist_mean(
     mesh: DeviceMesh,
     extra_pg: dist.ProcessGroup | None = None,
 ) -> float:
+    """All-reduce `x` with an AVG operation over `mesh` (and optionally `extra_pg` first)."""
     return _dist_reduce(
         x, reduceOp=c10d.ReduceOp.AVG.name, mesh=mesh, extra_pg=extra_pg
     )
@@ -155,6 +160,7 @@ def create_context_parallel_ctx(
     cp_rotate_method: str,
     cp_load_balance: bool = True,
 ):
+    """Build the Context Parallel context manager that shards `cp_buffers` along `cp_seq_dims` over `cp_mesh`."""
     set_rotate_method(cp_rotate_method)
     _cp_options.enable_load_balance = cp_load_balance
     return context_parallel(
@@ -168,6 +174,7 @@ def create_context_parallel_ctx(
 def get_train_context(
     enable_loss_parallel: bool, enable_compiled_autograd: bool
 ) -> Callable[..., contextlib.AbstractContextManager]:
+    """Build a context-manager factory that optionally enables loss-parallel, compiled autograd, and/or a Context Parallel context."""
     @contextlib.contextmanager
     def context(cp_context: contextlib.AbstractContextManager | None = None):
         with contextlib.ExitStack() as stack:
@@ -190,6 +197,7 @@ def get_train_context(
 def maybe_enable_amp(
     parallel_dims: ParallelDims, mixed_precision_param: str, device_type: str
 ) -> contextlib.AbstractContextManager:
+    """Return an autocast context for mixed precision when using plain DDP/single-device training; a no-op otherwise (FSDP/TP/PP handle precision themselves)."""
     if parallel_dims.fsdp_enabled:
         # FSDP handles mixed precision internally
         logger.info("Mixed precision training is handled by fully_shard")
@@ -323,6 +331,7 @@ def _clip_grad_norm_with_ep(
     foreach: bool | None,
     pp_mesh: DeviceMesh | None,
 ) -> torch.Tensor:
+    """EP-aware gradient clipping: compute norms separately for EP-sharded and non-EP parameters, then combine before clipping both groups."""
     ep_params = []
     non_ep_params = []
     ep_grads = []

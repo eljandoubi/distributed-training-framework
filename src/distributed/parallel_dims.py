@@ -1,3 +1,5 @@
+"""Computes and validates the multi-dimensional device mesh (DP/CP/TP/PP/EP/ETP) used for all parallelism strategies."""
+
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -10,6 +12,8 @@ __all__ = ["ParallelDims"]
 
 @dataclass
 class ParallelDims:
+    """Holds the requested degree for each parallelism dimension and builds/validates the corresponding device meshes."""
+
     dp_replicate: int
     dp_shard: int
     cp: int
@@ -24,9 +28,11 @@ class ParallelDims:
     _world_mesh: DeviceMesh | None = None
 
     def __post_init__(self):
+        """Resolve `dp_shard=-1` to the remaining world size and validate that all degrees are consistent."""
         self._validate()
 
     def _validate(self):
+        """Assert all parallelism degrees are positive and their product equals `world_size`, and validate EP constraints."""
         dp_replicate, dp_shard, cp, tp, pp, ep, etp = (
             self.dp_replicate,
             self.dp_shard,
@@ -56,6 +62,7 @@ class ParallelDims:
                 assert ep % (cp * tp) == 0 and (dp_shard * cp * tp) % ep == 0
 
     def _mesh_exist(self, name: str, degree: int) -> bool:
+        """Return whether the named mesh dimension should be backed by a real process group (vs. a fake/degenerate one)."""
         if name == "fsdp":
             # Always keep fsdp mesh with real backend so fully_shard()
             # can apply MixedPrecisionPolicy even at degree 1.
@@ -73,6 +80,7 @@ class ParallelDims:
             dim_names: tuple[str, ...],
             dim_degrees: tuple[int, ...],
         ):
+            """Unflatten the 1-D world mesh into named sub-dimensions, using fake backends for degenerate (size-1) dims."""
             backend_override = {}
             for name, degree in zip(dim_names, dim_degrees, strict=True):
                 if not self._mesh_exist(name, degree):
@@ -147,6 +155,7 @@ class ParallelDims:
         return self._world_mesh
 
     def _validate_meshes(self):
+        """Assert that every constructed sub-mesh has the expected size given the configured parallelism degrees."""
         expected_sizes = {
             "pp": self.pp,
             "batch": self.dp_replicate * self.dp_shard,
@@ -165,6 +174,7 @@ class ParallelDims:
             assert actual_size == expected_size, (mesh_name, actual_size, expected_size)
 
     def get_optional_mesh(self, dims: str | list[str]) -> DeviceMesh | None:
+        """Return the (possibly multi-dimensional) sub-mesh for `dims`, or None if any of those dimensions is degenerate (size 1)."""
         if not self._meshes:
             self.build_mesh()
 
@@ -192,6 +202,7 @@ class ParallelDims:
             raise ValueError(f"Invalid mesh name combinations {dims}.")
 
     def get_mesh(self, dims: str | list[str]) -> DeviceMesh:
+        """Like `get_optional_mesh`, but raise if the requested dimension(s) are not enabled."""
         mesh = self.get_optional_mesh(dims)
         if mesh is None:
             enabled_str = (
@@ -204,12 +215,14 @@ class ParallelDims:
         return mesh
 
     def get_all_one_dimensional_meshes(self) -> dict[str, DeviceMesh]:
+        """Return every enabled (size > 1) 1-D named sub-mesh, e.g. for setting per-group communication timeouts."""
         if not self._meshes:
             self.build_mesh()
         return {k: v for k, v in self._meshes.items() if v.ndim == 1 and v.size() > 1}
 
     @property
     def world_mesh(self) -> DeviceMesh:
+        """The full 1-D world device mesh, built lazily on first access."""
         if self._world_mesh is None:
             self._world_mesh = self.build_mesh()
         return self._world_mesh

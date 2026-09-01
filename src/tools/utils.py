@@ -1,3 +1,5 @@
+"""Miscellaneous training utilities: manual garbage collection control, hardware peak-FLOPS lookup, and integer rounding."""
+
 from __future__ import annotations
 
 import gc
@@ -8,6 +10,8 @@ from loguru import logger
 
 
 class GarbageCollection:
+    """Disables Python's automatic GC and instead runs collection manually at a fixed step frequency, to avoid stragglers across ranks."""
+
     def __init__(self, gc_freq: int = 1000):
         assert gc_freq > 0, "gc_freq must be a positive integer"
         self.gc_freq = gc_freq
@@ -15,17 +19,20 @@ class GarbageCollection:
         self.collect("Initial GC collection")
 
     def run(self, step_count: int):
+        """Run a GC collection if `step_count` is a multiple of `gc_freq` (and not the first step)."""
         if step_count > 1 and step_count % self.gc_freq == 0:
             self.collect("Performing periodic GC collection")
 
     @staticmethod
     def collect(reason: str, generation: int = 1):
+        """Run `gc.collect` for the given generation and log how long it took."""
         begin = time.monotonic()
         gc.collect(generation)
         logger.info("[GC] {} took {:.2f} seconds", reason, time.monotonic() - begin)
 
 
 def get_peak_flops(device_name: str) -> int:
+    """Return the manufacturer-specified peak (dense) FLOPS for a known GPU model, falling back to A100 if unrecognized."""
     if "A100" in device_name:
         # data from https://www.nvidia.com/en-us/data-center/a100/
         return int(312e12)

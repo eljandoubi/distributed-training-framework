@@ -1,3 +1,5 @@
+"""Streaming, checkpoint-resumable Hugging Face dataset loading and tokenization for pretraining."""
+
 from collections.abc import Callable
 from functools import partial
 from typing import Any
@@ -17,6 +19,7 @@ from src.dataset import DatasetConfig
 
 
 def _load_fineweb_dataset(dataset_path: str, split: str):
+    """Stream-load the FineWeb dataset from the Hugging Face Hub with generous timeouts/retries."""
     huggingface_hub.constants.DEFAULT_REQUEST_TIMEOUT = 300  
     huggingface_hub.constants.DEFAULT_DOWNLOAD_TIMEOUT = 300
     return load_dataset(
@@ -29,6 +32,7 @@ def _load_fineweb_dataset(dataset_path: str, split: str):
 
 
 def _process_pretrain_record(sample: dict[str, Any]) -> str:
+    """Extract the raw text field from a pretraining dataset sample."""
     return sample["text"]
 
 
@@ -44,6 +48,7 @@ DATASETS = {
 def _validate_dataset(
     dataset_name: str, dataset_path: str | None = None
 ) -> tuple[str, Callable, Callable]:
+    """Look up `dataset_name` in the dataset registry and return its (path, loader, sample-processor)."""
     config = DATASETS[dataset_name]
     path = dataset_path or config.path
     logger.info(f"Preparing {dataset_name} dataset from {path}")
@@ -51,6 +56,8 @@ def _validate_dataset(
 
 
 class HuggingFaceDataset(IterableDataset, Stateful):
+    """Streams, tokenizes, and packs a Hugging Face text dataset into fixed-length (input, label) sequences, with checkpoint support."""
+
     def __init__(
         self,
         dataset_name: str,
@@ -81,6 +88,7 @@ class HuggingFaceDataset(IterableDataset, Stateful):
         self._token_buffer: list[int] = []
 
     def _get_data_iter(self):
+        """Return an iterator over the underlying dataset, resuming from `self._sample_idx` for map-style datasets."""
         # For map-style datasets, resume by skipping to the correct index
         # For iterable-style datasets, the underlying iterator already points to the correct index
         if isinstance(self._data, Dataset):
@@ -92,6 +100,7 @@ class HuggingFaceDataset(IterableDataset, Stateful):
         return iter(self._data)
 
     def __iter__(self):
+        """Yield tokenized, fixed-length (input, label) pairs, buffering and re-looping the dataset as configured."""
         max_buffer_token_len = 1 + self.seq_len
 
         while True:
@@ -128,6 +137,7 @@ class HuggingFaceDataset(IterableDataset, Stateful):
                     self._data.set_epoch(self._data.epoch + 1)
 
     def load_state_dict(self, state_dict):
+        """Restore the token buffer and dataset iteration position from a checkpoint."""
         self._token_buffer = state_dict["token_buffer"]
 
         if isinstance(self._data, Dataset):
@@ -137,6 +147,7 @@ class HuggingFaceDataset(IterableDataset, Stateful):
             self._data.load_state_dict(state_dict["data"])
 
     def state_dict(self):
+        """Save the token buffer and dataset iteration position for checkpointing."""
         _state_dict: dict[str, Any] = {"token_buffer": self._token_buffer}
 
         if isinstance(self._data, Dataset):
@@ -156,6 +167,7 @@ def build_hf_dataloader(
     job_config: JobConfig,
     infinite: bool = True,
 ) -> ParallelAwareDataloader:
+    """Build a data-parallel-aware, checkpoint-resumable dataloader for the configured pretraining dataset."""
     dataset_name = job_config.training.dataset
     dataset_path = job_config.training.dataset_path
     batch_size = job_config.training.local_batch_size

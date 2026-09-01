@@ -1,3 +1,5 @@
+"""Mixture-of-Experts (MoE) layer: token-choice top-k routing, grouped-GEMM experts, and auxiliary-loss-free load balancing."""
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -9,6 +11,8 @@ from torch.distributed.tensor import DTensor
 
 @dataclass
 class MoEArgs:
+    """Configuration for the MoE layer: expert counts, routing scheme, and load-balancing coefficient."""
+
     num_experts: int = 8
     num_shared_experts: int = 1
 
@@ -24,6 +28,8 @@ class MoEArgs:
 
 
 class FeedForward(nn.Module):
+    """Dense SwiGLU feed-forward block, used both as the non-MoE FFN and as the MoE's shared experts."""
+
     def __init__(
         self,
         dim: int,
@@ -35,6 +41,7 @@ class FeedForward(nn.Module):
         self.w3 = nn.Linear(dim, hidden_dim, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the SwiGLU feed-forward transformation to `x`."""
         # Typical Llama-style Swiglu activation function
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
@@ -43,6 +50,7 @@ class FeedForward(nn.Module):
         init_std: float,
         buffer_device: torch.device | None = None,
     ):
+        """Truncated-normal initialize the three linear projections."""
         nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
         for linear in (self.w2, self.w3):
             nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
@@ -55,6 +63,7 @@ def _run_experts_grouped_mm(
     routed_input: torch.Tensor,  # [batch_size * seq_len * top_k, dim]
     num_tokens_per_expert: torch.Tensor,
 ) -> torch.Tensor:
+    """Run the SwiGLU expert computation for all experts in one batched (grouped) matmul call."""
     # num_tokens_per_expert = tensor([
     #     2., 3., 3., 2., 3., 3., 3., 4., 3., 2., 2., 2.
     # ])
@@ -86,6 +95,8 @@ def _run_experts_grouped_mm(
 
 
 class GroupedExperts(nn.Module):
+    """Batched storage and grouped-GEMM execution of all experts' SwiGLU weights."""
+
     def __init__(
         self,
         dim: int,
@@ -103,6 +114,7 @@ class GroupedExperts(nn.Module):
         routed_input: torch.Tensor,
         num_tokens_per_expert: torch.Tensor,
     ) -> torch.Tensor:
+        """Run all experts on their assigned (already sorted/grouped) routed tokens."""
         if isinstance(self.w1, DTensor):
             assert isinstance(self.w2, DTensor) and isinstance(self.w3, DTensor)
             # Grouped MM operates on rank-local tensors, so extract each parameter's local shard before invoking the kernel.
@@ -121,12 +133,15 @@ class GroupedExperts(nn.Module):
         init_std: float,
         buffer_device: torch.device | None = None,
     ):
+        """Truncated-normal initialize the batched expert weight tensors."""
         nn.init.trunc_normal_(self.w1, mean=0.0, std=0.02)
         nn.init.trunc_normal_(self.w2, mean=0.0, std=init_std)
         nn.init.trunc_normal_(self.w3, mean=0.0, std=init_std)
 
 
 class TokenChoiceTopKRouter(nn.Module):
+    """Token-choice top-k router: scores tokens against experts and selects each token's top-k experts."""
+
     def __init__(
         self,
         dim: int,
@@ -147,6 +162,7 @@ class TokenChoiceTopKRouter(nn.Module):
     def forward(
         self, x: torch.Tensor, expert_bias: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Score tokens, select their top-k experts, and return (top-k gate scores, selected expert indices, tokens-per-expert histogram)."""
         # x: (batch_size * seq_len, dim)
         # scores: (batch_size * seq_len, num_experts)
         with torch.autocast(device_type=x.device.type, dtype=torch.float32):
@@ -196,10 +212,13 @@ class TokenChoiceTopKRouter(nn.Module):
         init_std: float,
         buffer_device: torch.device | None = None,
     ):
+        """Truncated-normal initialize the router's gating linear layer."""
         nn.init.trunc_normal_(self.gate.weight, mean=0.0, std=init_std)
 
 
 class TokenReorderer(nn.Module):
+    """Reorders tokens so that all tokens routed to the same expert become contiguous, for grouped-GEMM execution."""
+
     def __init__(self, num_experts: int, top_k: int):
         super().__init__()
         self.num_experts = num_experts
@@ -212,6 +231,7 @@ class TokenReorderer(nn.Module):
         top_scores: torch.Tensor,
         selected_experts_indices: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sort routed tokens by assigned expert and recompute the per-expert token counts for this shard."""
         # Example for one rank's 8-token ReordererSequenceParallel shard from a 16-token TP/data input, with 12 experts and top_k=4:
         # selected_experts_indices = tensor([
         #     [0, 1, 4, 7],
@@ -293,6 +313,8 @@ class TokenReorderer(nn.Module):
 
 
 class MoE(nn.Module):
+    """Full MoE sublayer combining routing, token reordering, grouped-expert computation, and optional shared experts."""
+
     def __init__(self, moe_args: MoEArgs, dim: int, hidden_dim: int):
         super().__init__()
 
@@ -339,6 +361,7 @@ class MoE(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Route tokens to experts, run the experts (and shared experts), and combine outputs back into token order."""
         if isinstance(x, DTensor):
             raise TypeError("A plain tensor is expected")
 
@@ -411,6 +434,7 @@ class MoE(nn.Module):
         init_std: float,
         buffer_device: torch.device | None = None,
     ):
+        """Initialize experts, router, and shared experts, and (re)allocate the load-balancing buffers on `buffer_device`."""
         if buffer_device is None:
             raise ValueError(
                 "buffer_device must be provided for MoE weight initialization"

@@ -1,3 +1,5 @@
+"""Optimizer container spanning multiple model parts, plus auxiliary-loss-free MoE load-balancing via an expert-bias update hook."""
+
 import functools
 from collections.abc import Callable, Iterator
 from typing import Any, Generic, TypeVar, cast, overload
@@ -48,6 +50,8 @@ def _group_params_by_mesh(
 
 
 class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
+    """Wraps one optimizer instance per model part (needed for Pipeline Parallel) behind a single `Optimizer`-like interface."""
+
     optimizers: list[T]
     model_parts: list[nn.Module]
 
@@ -57,6 +61,7 @@ class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
         optimizer_cls: type[T],
         optimizer_kwargs: dict[str, Any],
     ) -> None:
+        """Build one optimizer per model part, grouping each part's parameters by DTensor mesh."""
         all_params = []
         self.optimizers = []
         self.model_parts = model_parts
@@ -86,10 +91,12 @@ class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
         return ret
 
     def zero_grad(self, *args, **kwargs) -> None:
+        """Zero gradients on every wrapped optimizer."""
         for optimizer in self.optimizers:
             optimizer.zero_grad(*args, **kwargs)
 
     def state_dict(self) -> dict[str, Any]:
+        """Return the merged, flattened optimizer state dict across all model parts."""
         func = functools.partial(
             get_optimizer_state_dict,
             options=StateDictOptions(flatten_optimizer_state_dict=True),
@@ -101,6 +108,7 @@ class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
         }
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Load the flattened optimizer state dict back into each model part's optimizer."""
         func = functools.partial(
             set_optimizer_state_dict,
             optim_state_dict=state_dict,
@@ -109,6 +117,7 @@ class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
         list(map(func, self.model_parts, self.optimizers))
 
     def _validate_length(self, expected_length: int) -> None:
+        """Assert one optimizer exists per model part."""
         assert expected_length == len(self.optimizers), (
             "Must pass one optimizer per model part."
         )
@@ -116,6 +125,7 @@ class OptimizersContainer(Optimizer, Stateful, Generic[T]):  # noqa: UP046
     def _post_init(
         self, all_params: list[nn.Parameter], optimizer_kwargs: dict[str, Any]
     ) -> None:
+        """Call `Optimizer.__init__` on the flattened parameter list to set up hooks and other base functionality."""
         # We need to call Optimizer.__init__() to initialize some necessary optimizer functionality such as hooks.
         Optimizer.__init__(self, all_params, optimizer_kwargs)
 
@@ -125,6 +135,7 @@ def build_optimizers(
     optimizer_config: OptimizerConfig,
     parallel_dims: ParallelDims,
 ) -> OptimizersContainer:
+    """Build one Adam/AdamW optimizer per model part from `optimizer_config`."""
     name = optimizer_config.name
     lr = optimizer_config.lr
     beta1 = optimizer_config.beta1
@@ -170,6 +181,7 @@ def build_optimizers_with_moe_load_balancing(
     )
 
     def _should_register_moe_balancing_hook(model_parts: list[nn.Module]) -> bool:
+        """Return whether any MoE layer in `model_parts` has auxiliary-loss-free load balancing enabled."""
         for model_part in model_parts:
             layers = cast(nn.ModuleDict, model_part.layers)
             for transformer_block in layers.values():
@@ -181,12 +193,14 @@ def build_optimizers_with_moe_load_balancing(
 
     # for MoE auxiliary-loss-free load balancing
     def _is_recomputation_enabled(module):
+        """Return whether `module` is wrapped with non-reentrant activation checkpointing (which double-counts token stats)."""
         return getattr(module, "checkpoint_impl", None) is CheckpointImpl.NO_REENTRANT
 
     def _update_expert_bias(
         model_parts: list[nn.Module],
         parallel_dims: ParallelDims,
     ):
+        """Optimizer step-pre-hook: update each MoE layer's expert bias toward balanced expert usage, using globally-reduced token counts."""
         dp_cp_mesh = parallel_dims.get_optional_mesh("loss")
         tokens_per_expert_list = []
         for model_part in model_parts:

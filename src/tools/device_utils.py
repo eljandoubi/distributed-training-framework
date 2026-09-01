@@ -1,3 +1,5 @@
+"""Accelerator-agnostic device module discovery and a default-dtype context manager."""
+
 import contextlib
 from typing import Any, Protocol, cast
 
@@ -6,6 +8,8 @@ from torch._utils import _get_available_device_type, _get_device_module
 
 
 class DeviceModule(Protocol):
+    """Structural type for the subset of `torch.cuda`-like device module APIs this project depends on."""
+
     def set_device(self, device: torch.device | int) -> None: ...
     def current_device(self) -> int: ...
     def synchronize(self) -> None: ...
@@ -17,6 +21,7 @@ class DeviceModule(Protocol):
 
 
 def get_device_info() -> tuple[str, DeviceModule]:
+    """Return the available accelerator type (e.g. "cuda", "xpu") and its corresponding device module."""
     device_type = _get_available_device_type() or "cuda"
     device_module = cast(DeviceModule, _get_device_module(device_type))
     return device_type, device_module
@@ -27,6 +32,7 @@ device_type, device_module = get_device_info()
 
 @contextlib.contextmanager
 def set_default_dtype(dtype: torch.dtype):
+    """Temporarily set torch's default dtype to `dtype`, restoring the previous value on exit."""
     old_dtype = torch.get_default_dtype()
     torch.set_default_dtype(dtype)
     try:

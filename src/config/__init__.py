@@ -1,3 +1,5 @@
+"""Package init: re-exports job config dataclasses and the torch dtype name-to-object mapping."""
+
 import torch
 
 from .job_config import (

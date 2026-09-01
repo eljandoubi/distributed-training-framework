@@ -1,3 +1,5 @@
+"""Helpers to permute Expert-Parallel routed tokens into padded, local-expert-major order (and back) for grouped-GEMM execution."""
+
 import torch
 
 from src.tools.utils import _round_up
@@ -72,6 +74,7 @@ def _permute(x, num_tokens_per_expert_group, ep_degree, num_local_experts):
 
 
 def _unpermute(out, input_shape, permuted_indices):
+    """Invert `_permute`: scatter padded local-expert-major expert outputs back into source-major token order."""
     out_unpermuted = out.new_empty(input_shape)
     out_unpermuted[permuted_indices, :] = out
     out = out_unpermuted[:-1]

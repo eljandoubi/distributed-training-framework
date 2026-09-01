@@ -1,3 +1,5 @@
+"""DDP and FSDP/HSDP application helpers, including MoE-aware FSDP wrapping and explicit prefetch setup."""
+
 from typing import Any, cast
 
 import torch
@@ -18,6 +20,7 @@ def apply_ddp(
     enable_compile: bool,
     enable_compiled_autograd: bool,
 ):
+    """Wrap `model` with `torch.distributed._composable.replicate` (DDP) over `dp_mesh`."""
     if enable_compile:
         if enable_compiled_autograd:
             torch._dynamo.config.optimize_ddp = (
@@ -41,6 +44,7 @@ def apply_fsdp(
     ep_degree: int = 1,
     dp_replicate_efsdp_mesh: DeviceMesh | None = None,
 ):
+    """Wrap `model` with FSDP/HSDP over `dp_mesh`, sharding MoE routed experts separately when Expert Parallel is enabled."""
     mp_policy = MixedPrecisionPolicy(
         param_dtype=param_dtype,
         reduce_dtype=reduce_dtype,

@@ -1,3 +1,5 @@
+"""DeepSeek-V3 transformer model definition: Multi-Head Latent Attention (MLA), transformer blocks, and the top-level model class."""
+
 import math
 
 import torch
@@ -10,7 +12,10 @@ from src.model.sdpa import ScaledDotProductAttentionWrapper
 
 
 class Attention(nn.Module):
+    """Multi-Head Latent Attention (MLA) with low-rank Q/KV projections and rotary position embeddings."""
+
     def __init__(self, model_args: DeepSeekV3ModelArgs):
+        """Build the attention projections and softmax scaling from the given model config."""
         super().__init__()
 
         self.dim = model_args.dim
@@ -108,6 +113,7 @@ class Attention(nn.Module):
 
     @torch.no_grad()
     def absorb_mla_weights(self) -> None:
+        """Fold the up-projection weights into the query/output projections (weight absorption) to enable the cheaper `forward_absorbed` inference path."""
         if self.q_lora_rank == 0:
             raise NotImplementedError()
 
@@ -211,6 +217,7 @@ class Attention(nn.Module):
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
     ) -> torch.Tensor:
+        """Forward pass using the weight-absorbed projections produced by `absorb_mla_weights`."""
         assert self.wq_abs is not None
         assert self.wo_abs is not None
 
@@ -290,6 +297,7 @@ class Attention(nn.Module):
         init_std: float,
         buffer_device: torch.device | None = None,
     ):
+        """Initialize attention projection weights and reset RMSNorm parameters."""
         linear_list = [
             self.wkv_a,
             self.wkv_b,
@@ -314,6 +322,7 @@ class TransformerBlock(nn.Module):
     """
 
     def __init__(self, layer_id: int, model_args: DeepSeekV3ModelArgs):
+        """Build the attention and (dense or MoE) feed-forward sublayers for one transformer layer."""
         super().__init__()
         self.attention = Attention(model_args)
         self.attention_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
@@ -355,6 +364,7 @@ class TransformerBlock(nn.Module):
         init_std: float | None = None,
         buffer_device: torch.device | None = None,
     ):
+        """Reset norms and initialize the attention and feed-forward/MoE sublayer weights."""
         if buffer_device is None:
             raise ValueError(
                 "buffer_device must be provided for TransformerBlock weight initialization"
@@ -371,7 +381,10 @@ class TransformerBlock(nn.Module):
 
 
 class DeepSeekV3Model(nn.Module):
+    """DeepSeek-V3 decoder-only transformer: token embedding, stacked transformer blocks, and an output projection."""
+
     def __init__(self, model_args: DeepSeekV3ModelArgs):
+        """Build the embedding, transformer layers, final norm, and output projection."""
         super().__init__()
         self.model_args = model_args
         self.tok_embeddings = nn.Embedding(model_args.vocab_size, model_args.dim)
@@ -396,6 +409,7 @@ class DeepSeekV3Model(nn.Module):
         init_std: float | None = None,
         buffer_device: torch.device | None = None,
     ):
+        """Initialize all model weights and recompute the rotary embedding buffer on `buffer_device`."""
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = precompute_freqs_cis(self.model_args)

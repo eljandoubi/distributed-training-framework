@@ -1,9 +1,12 @@
+"""Preset `JobConfig`s for DeepSeek-V3 under various parallelism combinations (DDP/FSDP/HSDP/TP/PP/CP/EP)."""
+
 from src.config.job_config import JobConfig
 from src.model.args import DeepSeekV3ModelArgs
 from src.model.moe.moe import MoEArgs
 
 
 def get_deepseek_v3_model_args() -> DeepSeekV3ModelArgs:
+    """Return the reference DeepSeek-V3 model hyperparameters (16B-ish MoE configuration)."""
     return DeepSeekV3ModelArgs(
         vocab_size=102400,
         dim=2048,
@@ -30,6 +33,7 @@ def get_deepseek_v3_model_args() -> DeepSeekV3ModelArgs:
 
 
 def get_deepseek_v3_base_config() -> JobConfig:
+    """Return the common base `JobConfig` shared by all parallelism preset configs."""
     config = JobConfig()
 
     config.job.dump_folder = "./outputs"
@@ -85,6 +89,7 @@ def get_deepseek_v3_base_config() -> JobConfig:
 
 
 def get_deepseek_v3_pp_tp_config() -> JobConfig:
+    """Base config with Pipeline Parallel + Tensor Parallel + FSDP."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 4
@@ -98,6 +103,7 @@ def get_deepseek_v3_pp_tp_config() -> JobConfig:
 
 
 def get_deepseek_v3_hsdp_ep_config() -> JobConfig:
+    """Base config with HSDP + Expert Parallel."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 1
@@ -109,6 +115,7 @@ def get_deepseek_v3_hsdp_ep_config() -> JobConfig:
 
 
 def get_deepseek_v3_fsdp_cp_config() -> JobConfig:
+    """Base config with FSDP + Context Parallel."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 2
@@ -120,6 +127,7 @@ def get_deepseek_v3_fsdp_cp_config() -> JobConfig:
 
 
 def get_deepseek_v3_fsdp_tp_config() -> JobConfig:
+    """Base config with FSDP + Tensor Parallel."""
     config = get_deepseek_v3_base_config()
     # Reduce number of layers and batch size to fit in memory with DDP
     config.model.args.n_layers = 6
@@ -132,6 +140,7 @@ def get_deepseek_v3_fsdp_tp_config() -> JobConfig:
 
 
 def get_deepseek_v3_hsdp_config() -> JobConfig:
+    """Base config with HSDP only."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 1
@@ -141,6 +150,7 @@ def get_deepseek_v3_hsdp_config() -> JobConfig:
 
 
 def get_deepseek_v3_ddp_config() -> JobConfig:
+    """Base config with DDP only."""
     config = get_deepseek_v3_base_config()
 
     # Reduce number of layers and batch size to fit in memory with DDP
@@ -153,6 +163,7 @@ def get_deepseek_v3_ddp_config() -> JobConfig:
 
 
 def get_deepseek_v3_fsdp_config() -> JobConfig:
+    """Base config with FSDP only."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 1
@@ -162,6 +173,7 @@ def get_deepseek_v3_fsdp_config() -> JobConfig:
 
 
 def get_deepseek_v3_fsdp_ep_tp_config() -> JobConfig:
+    """Base config with FSDP + Expert Parallel + Tensor Parallel (ETP disabled)."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 2
@@ -175,6 +187,7 @@ def get_deepseek_v3_fsdp_ep_tp_config() -> JobConfig:
 
 
 def get_deepseek_v3_fsdp_ep_etp_config() -> JobConfig:
+    """Base config with FSDP + Expert Parallel + Expert Tensor Parallel."""
     config = get_deepseek_v3_base_config()
     config.model.args.n_layers = 6
     config.training.local_batch_size = 2
@@ -201,4 +214,5 @@ config_map = {
 
 
 def get_config(name: str) -> JobConfig:
+    """Look up and build the preset `JobConfig` registered under `name` in `config_map`."""
     return config_map[name]()

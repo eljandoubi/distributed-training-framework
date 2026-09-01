@@ -1,3 +1,5 @@
+"""Thin wrapper around a Hugging Face `tokenizers.Tokenizer`, adding BOS/EOS handling inferred from the tokenizer config."""
+
 import json
 import os
 from typing import Any
@@ -7,6 +9,8 @@ from tokenizers import Tokenizer
 
 
 class DeepSeekV3Tokenizer:
+    """Loads a DeepSeek-V3 tokenizer from `tokenizer_path` and encodes/decodes text with configurable BOS/EOS insertion."""
+
     def __init__(
         self,
         tokenizer_path: str,
@@ -31,10 +35,12 @@ class DeepSeekV3Tokenizer:
         self._infer_should_add_bos_eos()
 
     def _load_config(self, config_path: str) -> dict:
+        """Load the tokenizer's JSON config file."""
         with open(config_path, "r") as f:
             return json.load(f)
 
     def _load_tokenizer_from_path(self, tokenizer_path: str) -> Tokenizer:
+        """Load the underlying `tokenizers.Tokenizer` from `tokenizer_path/tokenizer.json`."""
         if not os.path.exists(tokenizer_path):
             raise FileNotFoundError(f"Tokenizer path '{tokenizer_path}' does not exist")
 
@@ -44,6 +50,7 @@ class DeepSeekV3Tokenizer:
         return Tokenizer.from_file(tokenizer_json_path)
 
     def _get_token_from_config(self, config: dict[str, Any], key: str) -> str:
+        """Extract a special token's string content (e.g. bos/eos) from the tokenizer config."""
         token = config.get(key)
         assert isinstance(token, dict)
         assert "content" in token
@@ -51,6 +58,7 @@ class DeepSeekV3Tokenizer:
         return token["content"]
 
     def _infer_should_add_bos_eos(self):
+        """Determine whether the underlying tokenizer already adds BOS/EOS, and what the config's default add-token behavior is."""
         self.default_add_bos = False
         self.default_add_eos = False
         self.hf_adds_bos = False
@@ -70,6 +78,7 @@ class DeepSeekV3Tokenizer:
     def encode(
         self, text: str, add_bos: bool | None = None, add_eos: bool | None = None
     ) -> list[int]:
+        """Encode `text` to token ids, adding BOS/EOS as requested (or per the tokenizer's defaults) if not already added by the tokenizer itself."""
         add_bos = self.default_add_bos if add_bos is None else add_bos
         add_eos = self.default_add_eos if add_eos is None else add_eos
 
@@ -84,17 +93,22 @@ class DeepSeekV3Tokenizer:
         return token_ids
 
     def decode(self, token_ids: list[int], **kwargs) -> str:
+        """Decode a list of token ids back to text."""
         return self.tokenizer.decode(token_ids, **kwargs)
 
     @property
     def vocab_size(self) -> int:
+        """Total vocabulary size."""
         return self.tokenizer.get_vocab_size()
 
     def get_vocab(self) -> dict[str, int]:
+        """Return the full token-to-id vocabulary mapping."""
         return self.tokenizer.get_vocab()
 
     def token_to_id(self, token: str) -> int | None:
+        """Look up the id for a token string, or None if it's not in the vocabulary."""
         return self.tokenizer.token_to_id(token)
 
     def id_to_token(self, token_id: int) -> str | None:
+        """Look up the token string for an id, or None if it's out of range."""
         return self.tokenizer.id_to_token(token_id)

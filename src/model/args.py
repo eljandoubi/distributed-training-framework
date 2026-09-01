@@ -1,3 +1,5 @@
+"""Model hyperparameters (dataclass) for DeepSeek-V3, plus parameter/FLOP counting utilities."""
+
 from dataclasses import dataclass, field
 
 from loguru import logger
@@ -8,6 +10,8 @@ from src.model.moe import MoEArgs
 
 @dataclass
 class DeepSeekV3ModelArgs:
+    """Hyperparameters controlling model size, MLA attention, MoE routing, and RoPE/YaRN scaling."""
+
     max_seq_len: int = 4096 * 4
     vocab_size: int = 102400
     dim: int = 2048
@@ -37,6 +41,7 @@ class DeepSeekV3ModelArgs:
     mscale: float = 1.0
 
     def get_nparams_and_flops(self, model: nn.Module, seq_len: int) -> tuple[int, int]:
+        """Return (total parameter count, estimated FLOPs per token) for the given instantiated model."""
         nparams_embedding = 0
         nparams_moe_router = 0
         nparams_shared_experts = 0

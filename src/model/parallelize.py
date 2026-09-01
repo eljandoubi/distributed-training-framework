@@ -1,3 +1,5 @@
+"""Top-level orchestration that applies TP, EP, activation checkpointing, torch.compile, and FSDP/DDP to a DeepSeekV3Model."""
+
 import torch
 from loguru import logger
 from torch.distributed.device_mesh import DeviceMesh
@@ -62,6 +64,7 @@ def parallelize_deepseekv3(
     parallel_dims: ParallelDims,
     job_config: JobConfig,
 ):
+    """Apply, in order, Tensor Parallel, MoE Expert/Tensor Parallel, activation checkpointing, torch.compile, and FSDP/HSDP/DDP to `model`."""
     # Currently we use local tensors along with DTensors for some computations. When you shard a DTensor, it can be ragged (e.g. you can have a size 10 dimension be split across 4 ranks, with the last rank having 1 element). But if we use local tensors, then we should keep track of this ourselves. Since we don't track any metadata for this, we just enforce it.
     assert job_config.training.seq_len % parallel_dims.seq_len_divisor == 0, f"""
         Sequence length {job_config.training.seq_len} must be divisible by the product of TP degree
@@ -189,6 +192,7 @@ def apply_non_moe_tp(
     tp_mesh: DeviceMesh,
     loss_parallel: bool,
 ):
+    """Apply Tensor Parallel (and Sequence Parallel) to the embedding, attention, dense-FFN, norm, and output layers."""
     # parallelize_module just calls the _apply method of the plan for each module that matches the pattern specified for the plan.
 
     # Each "ParallelStyle" just exposed a _apply method that:

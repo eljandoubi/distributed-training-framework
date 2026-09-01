@@ -1,3 +1,5 @@
+"""Optional PyTorch profiler (Chrome trace) and CUDA memory-snapshot context managers for training."""
+
 import contextlib
 import os
 import pickle
@@ -20,6 +22,7 @@ def maybe_enable_profiling(
     base_folder: str = "",
     leaf_folder: str = "",
 ):
+    """Context manager yielding a `torch.profiler.profile` (or None if disabled) that dumps Chrome traces on each scheduled step."""
     # get user defined profiler settings
     enable_profiling = profiling_config.enable_profiling
 
@@ -81,6 +84,7 @@ def maybe_enable_memory_snapshot(
     base_folder: str = "",
     leaf_folder: str = "",
 ):
+    """Context manager yielding a memory-snapshot recorder (or None if disabled) that dumps snapshots periodically and on OOM."""
     enable_snapshot = profiling_config.enable_memory_snapshot
     if enable_snapshot:
         snapshot_dir = os.path.join(
@@ -92,6 +96,7 @@ def maybe_enable_memory_snapshot(
 
         class MemoryProfiler:
             def __init__(self, step_num: int, freq: int):
+                """Start CUDA memory history recording, resuming step counting from `step_num`."""
                 torch.cuda.memory._record_memory_history(
                     max_entries=MEMORY_SNAPSHOT_MAX_ENTRIES
                 )
@@ -100,6 +105,7 @@ def maybe_enable_memory_snapshot(
                 self.freq = freq
 
             def step(self, exit_ctx: bool = False):
+                """Advance the step counter and, if due (or on OOM exit), dump a memory snapshot to disk."""
                 self.step_num += 1
                 if not exit_ctx and self.step_num % self.freq != 0:
                     return

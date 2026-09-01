@@ -1,3 +1,5 @@
+"""Triton kernel for computing grouped-GEMM permutation indices used by Expert Parallel MoE dispatch."""
+
 import torch
 import triton
 import triton.language as tl
@@ -69,6 +71,7 @@ def fill_indices_wrapper(
     block_size: int = 128,
     max_blocks: int = 1024,  # cap on total number of blocks to launch
 ):
+    """Launch the Triton kernel that scatters source-major token indices into their padded local-expert-major slots."""
     # preallocate output
     permuted_indices = torch.full(
         (max_len,), -1, dtype=torch.int32, device=tokens_per_expert_group.device
