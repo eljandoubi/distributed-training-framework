@@ -60,16 +60,24 @@ class MLAKVCache(nn.Module):
         self.register_buffer(
             "latent_cache",
             torch.zeros(
-                n_layers, max_batch_size, max_seq_len, kv_lora_rank,
-                dtype=dtype, device=device,
+                n_layers,
+                max_batch_size,
+                max_seq_len,
+                kv_lora_rank,
+                dtype=dtype,
+                device=device,
             ),
             persistent=False,
         )
         self.register_buffer(
             "rope_cache",
             torch.zeros(
-                n_layers, max_batch_size, max_seq_len, qk_rope_head_dim,
-                dtype=dtype, device=device,
+                n_layers,
+                max_batch_size,
+                max_seq_len,
+                qk_rope_head_dim,
+                dtype=dtype,
+                device=device,
             ),
             persistent=False,
         )

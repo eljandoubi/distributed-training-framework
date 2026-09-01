@@ -114,7 +114,9 @@ class Attention(nn.Module):
         kv = self.wkv_a(x)
         # latent: [batch_size, seq_len, kv_lora_rank]
         # k_pe: [batch_size, seq_len, qk_rope_head_dim]
-        latent, k_pe = torch.split(kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
+        latent, k_pe = torch.split(
+            kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
+        )
         # This is the latent that should be cached.
         latent = self.kv_norm(latent)
 
@@ -133,7 +135,9 @@ class Attention(nn.Module):
         kv = self.wkv_b(latent)
         cached_len = kv.size(1)
         # kv: [batch_size, cached_len, n_heads, qk_nope_head_dim + v_head_dim]
-        kv = kv.view(batch_size, cached_len, -1, self.qk_nope_head_dim + self.v_head_dim)
+        kv = kv.view(
+            batch_size, cached_len, -1, self.qk_nope_head_dim + self.v_head_dim
+        )
         # k_nope: [batch_size, cached_len, n_heads, qk_nope_head_dim]
         # v: [batch_size, cached_len, n_heads, v_head_dim]
         k_nope, v = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
