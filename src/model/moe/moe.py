@@ -198,8 +198,11 @@ class TokenChoiceTopKRouter(nn.Module):
         top_scores = top_scores * self.route_scale
 
         # num_tokens_per_expert: (num_experts,)
+        # NOTE: torch.histc's CPU kernel only supports floating-point inputs (CUDA supports
+        # integer types), so cast the (small, exact-in-float32) expert indices to float32
+        # before histogramming to keep this working identically on CPU and CUDA.
         num_tokens_per_expert = torch.histc(
-            selected_experts_indices.view(-1),
+            selected_experts_indices.view(-1).float(),
             bins=self.num_experts,
             min=0,
             max=self.num_experts,
@@ -250,8 +253,11 @@ class TokenReorderer(nn.Module):
         # num_tokens_per_expert = tensor([
         #     2., 3., 3., 2., 3., 3., 3., 4., 3., 2., 2., 2.
         # ])
+        # NOTE: torch.histc's CPU kernel only supports floating-point inputs (CUDA supports
+        # integer types), so cast the (small, exact-in-float32) expert indices to float32
+        # before histogramming to keep this working identically on CPU and CUDA.
         num_tokens_per_expert = torch.histc(
-            selected_experts_indices.view(-1),
+            selected_experts_indices.view(-1).float(),
             bins=self.num_experts,
             min=0,
             max=self.num_experts,

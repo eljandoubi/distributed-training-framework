@@ -153,8 +153,9 @@ class Attention(nn.Module):
 
         # Run attention as usual. When a cache is used, `q` covers only the newest
         # `seq_len` positions while `k`/`v` cover the full cached prefix (`cached_len`);
-        # `inner_attention`'s `is_causal=True` then applies SDPA's "bottom-right aligned"
-        # causal masking, which is exactly correct for append-only KV caches.
+        # `inner_attention` (`ScaledDotProductAttentionWrapper`) detects this and applies
+        # bottom-right aligned causal masking, which is exactly correct for append-only KV
+        # caches.
         output = self.inner_attention(q, k, v, scale=self.softmax_scale)
 
         # Reshape and project output
@@ -169,9 +170,17 @@ class Attention(nn.Module):
 
     @torch.no_grad()
     def absorb_mla_weights(self) -> None:
-        """Fold the up-projection weights into the query/output projections (weight absorption) to enable the cheaper `forward_absorbed` inference path."""
-        if self.q_lora_rank == 0:
-            raise NotImplementedError()
+        """Fold the up-projection weights into the query/output projections (weight absorption) to enable the cheaper `forward_absorbed` inference path.
+
+        Only supported when `q_lora_rank == 0` (no query LoRA): `forward_absorbed` applies
+        `wq_abs` directly to the raw layer input `x`, bypassing `wq_a`/`q_norm`, which is only
+        mathematically equivalent to the vanilla path when there is no query low-rank
+        bottleneck to begin with.
+        """
+        if self.q_lora_rank != 0:
+            raise NotImplementedError(
+                "MLA weight absorption is only supported when q_lora_rank == 0."
+            )
 
         n_heads = self.n_heads
         dim = self.dim
@@ -357,7 +366,7 @@ class Attention(nn.Module):
         # latent_output: [batch_size, n_heads, seq_len, kv_lora_rank]
         # `q` covers only the newest `seq_len` positions while `k`/`v` cover the full
         # cached prefix (`cached_len`); see the note on bottom-right causal alignment in
-        # `forward` / `ScaledDotProductAttentionWrapper`.
+        # `ScaledDotProductAttentionWrapper`.
         latent_output = self.inner_attention(q, k, v, scale=self.softmax_scale)
 
         # [batch_size, seq_len, n_heads * kv_lora_rank]

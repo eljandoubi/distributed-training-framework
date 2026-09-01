@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.distributed.tensor import DTensor
 from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.attention.bias import causal_lower_right
 
 __all__ = [
     "ScaledDotProductAttentionWrapper",
@@ -58,13 +59,35 @@ class ScaledDotProductAttentionWrapper(torch.nn.Module):
             ],
             set_priority=True,
         ):
-            # NOTE: when q and k/v have different sequence lengths (e.g. during KV-cache
-            # decoding, where q covers only the newest tokens but k/v cover the whole cached
-            # prefix), `is_causal=True` applies PyTorch SDPA's "bottom-right aligned" causal
-            # mask: query position i may attend to key positions [0, i + (S - L)], where L and
-            # S are q's and k's sequence lengths. This is exactly correct for append-only KV
-            # caches (see `src/model/kv_cache.py`), so no separate masking is needed here.
-            out = F.scaled_dot_product_attention(q, k, v, scale=scale, is_causal=True)
+            q_len, kv_len = q.shape[-2], k.shape[-2]
+            # MLA's weight-absorbed path (`Attention.forward_absorbed`) shares a single K/V
+            # "head" across all `n_heads` query heads (MQA-style). The CUDA flash/efficient
+            # kernels broadcast this implicitly, but the CPU math fallback requires
+            # `enable_gqa=True` to broadcast differing head counts between q and k/v.
+            enable_gqa = q.shape[-3] != k.shape[-3]
+            if q_len == kv_len:
+                # Prefill / training: q and k/v cover the same positions, so PyTorch SDPA's
+                # `is_causal=True` (top-left aligned `tril`) is exactly the standard causal mask.
+                out = F.scaled_dot_product_attention(
+                    q, k, v, scale=scale, is_causal=True, enable_gqa=enable_gqa
+                )
+            else:
+                # KV-cache decoding: q covers only the newest `q_len` positions while k/v
+                # cover the full cached prefix of length `kv_len` (`kv_len > q_len`).
+                # `is_causal=True` would apply a top-left aligned mask here, which is wrong:
+                # it would forbid the new tokens from attending to most of the cached past.
+                # We need the "bottom-right aligned" causal mask instead, where query row i
+                # (i.e. absolute position `kv_len - q_len + i`) may attend to key positions
+                # `[0, kv_len - q_len + i]`. See `src/model/kv_cache.py` for the cache this
+                # supports.
+                out = F.scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
+                    scale=scale,
+                    attn_mask=causal_lower_right(q_len, kv_len),
+                    enable_gqa=enable_gqa,
+                )
 
         if out.shape[-1] != v_head_dim:
             out = out[..., :v_head_dim]
