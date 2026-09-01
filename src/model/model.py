@@ -84,8 +84,6 @@ class Attention(nn.Module):
         k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis)
         # kv: [batch_size, seq_len, n_heads * (qk_nope_head_dim + v_head_dim)]
         kv = self.wkv_b(self.kv_norm(kv))
-         # kv: [batch_size, seq_len, n_heads * (qk_nope_head_dim + v_head_dim)]
-        kv = self.wkv_b(self.kv_norm(kv))
         # kv: [batch_size, seq_len, n_heads, qk_nope_head_dim + v_head_dim]
         kv = kv.view(batch_size, seq_len, -1, self.qk_nope_head_dim + self.v_head_dim)
         # k_nope: [batch_size, seq_len, n_heads, qk_nope_head_dim]
