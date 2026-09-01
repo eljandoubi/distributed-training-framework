@@ -57,4 +57,6 @@ def test_build_optimizers_rejects_unknown_optimizer_name():
     except NotImplementedError:
         pass
     else:
-        raise AssertionError("Expected NotImplementedError for an unregistered optimizer name")
+        raise AssertionError(
+            "Expected NotImplementedError for an unregistered optimizer name"
+        )

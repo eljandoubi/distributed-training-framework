@@ -41,7 +41,9 @@ def test_kv_cache_update_prefill_then_decode():
 
     # Layer 1's cache must be untouched (each layer has its own slot).
     other_layer_latent, _ = cache.update(
-        layer_id=1, start_pos=0, latent=torch.zeros(batch_size, 1, kv_lora_rank),
+        layer_id=1,
+        start_pos=0,
+        latent=torch.zeros(batch_size, 1, kv_lora_rank),
         k_rope=torch.zeros(batch_size, 1, rope_dim),
     )
     assert torch.allclose(other_layer_latent, torch.zeros_like(other_layer_latent))
@@ -50,7 +52,11 @@ def test_kv_cache_update_prefill_then_decode():
 def test_kv_cache_rejects_overflow():
     """Writing past `max_seq_len` should raise, rather than silently truncating or wrapping."""
     cache = MLAKVCache(
-        n_layers=1, max_batch_size=1, max_seq_len=2, kv_lora_rank=4, qk_rope_head_dim=2,
+        n_layers=1,
+        max_batch_size=1,
+        max_seq_len=2,
+        kv_lora_rank=4,
+        qk_rope_head_dim=2,
         dtype=torch.float32,
     )
     latent = torch.randn(1, 3, 4)  # seq_len=3 > max_seq_len=2
@@ -66,12 +72,18 @@ def test_kv_cache_rejects_overflow():
 def test_kv_cache_reset_zeroes_buffers():
     """`reset()` should zero out both the latent and rope cache buffers."""
     cache = MLAKVCache(
-        n_layers=1, max_batch_size=1, max_seq_len=4, kv_lora_rank=4, qk_rope_head_dim=2,
+        n_layers=1,
+        max_batch_size=1,
+        max_seq_len=4,
+        kv_lora_rank=4,
+        qk_rope_head_dim=2,
         dtype=torch.float32,
     )
     cache.update(
-        layer_id=0, start_pos=0,
-        latent=torch.randn(1, 2, 4), k_rope=torch.randn(1, 2, 2),
+        layer_id=0,
+        start_pos=0,
+        latent=torch.randn(1, 2, 4),
+        k_rope=torch.randn(1, 2, 2),
     )
     cache.reset()
     assert torch.all(cache.latent_cache == 0)

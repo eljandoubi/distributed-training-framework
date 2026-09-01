@@ -18,8 +18,12 @@ def test_token_choice_router_selects_top_k_and_counts_tokens():
     torch.manual_seed(0)
     num_experts, top_k, dim = 6, 2, 8
     router = TokenChoiceTopKRouter(
-        dim=dim, num_experts=num_experts, top_k=top_k, score_func="softmax",
-        route_norm=False, route_scale=1.0,
+        dim=dim,
+        num_experts=num_experts,
+        top_k=top_k,
+        score_func="softmax",
+        route_norm=False,
+        route_scale=1.0,
     )
     n_tokens = 10
     x = torch.randn(n_tokens, dim)
@@ -40,8 +44,12 @@ def test_moe_forward_preserves_shape_and_updates_tokens_per_expert():
     """`MoE.forward` should preserve (batch, seq, dim) shape and accumulate `tokens_per_expert` for load balancing."""
     torch.manual_seed(0)
     moe_args = MoEArgs(
-        num_experts=4, num_shared_experts=1, top_k=2,
-        score_func="softmax", route_norm=False, score_before_experts=False,
+        num_experts=4,
+        num_shared_experts=1,
+        top_k=2,
+        score_func="softmax",
+        route_norm=False,
+        score_before_experts=False,
     )
     moe = MoE(moe_args, dim=8, hidden_dim=16)
     moe.init_weights(init_std=0.02, buffer_device=torch.device("cpu"))

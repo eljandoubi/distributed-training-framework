@@ -57,7 +57,9 @@ def test_model_forward_rejects_kv_cache_in_training_mode():
     except RuntimeError:
         pass
     else:
-        raise AssertionError("Expected RuntimeError when using kv_cache in training mode")
+        raise AssertionError(
+            "Expected RuntimeError when using kv_cache in training mode"
+        )
 
 
 def test_model_eval_incremental_decode_matches_full_forward():

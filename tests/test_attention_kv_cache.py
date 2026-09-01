@@ -77,9 +77,12 @@ def test_forward_absorbed_matches_forward_with_cache():
 
     with torch.no_grad():
         cache_vanilla = MLAKVCache(
-            n_layers=1, max_batch_size=batch_size, max_seq_len=seq_len,
+            n_layers=1,
+            max_batch_size=batch_size,
+            max_seq_len=seq_len,
             kv_lora_rank=model_args.kv_lora_rank,
-            qk_rope_head_dim=model_args.qk_rope_head_dim, dtype=x.dtype,
+            qk_rope_head_dim=model_args.qk_rope_head_dim,
+            dtype=x.dtype,
         )
         out_vanilla = attn(x, freqs_cis[:seq_len], kv_cache=cache_vanilla, start_pos=0)
 
@@ -87,9 +90,12 @@ def test_forward_absorbed_matches_forward_with_cache():
         assert attn.is_absorbed
 
         cache_absorbed = MLAKVCache(
-            n_layers=1, max_batch_size=batch_size, max_seq_len=seq_len,
+            n_layers=1,
+            max_batch_size=batch_size,
+            max_seq_len=seq_len,
             kv_lora_rank=model_args.kv_lora_rank,
-            qk_rope_head_dim=model_args.qk_rope_head_dim, dtype=x.dtype,
+            qk_rope_head_dim=model_args.qk_rope_head_dim,
+            dtype=x.dtype,
         )
         out_absorbed = attn.forward_absorbed(
             x, freqs_cis[:seq_len], kv_cache=cache_absorbed, start_pos=0
@@ -108,9 +114,12 @@ def test_kv_cache_rejected_during_training():
     x = torch.randn(batch_size, seq_len, model_args.dim)
     freqs_cis = precompute_freqs_cis(model_args)[:seq_len]
     cache = MLAKVCache(
-        n_layers=1, max_batch_size=batch_size, max_seq_len=seq_len,
+        n_layers=1,
+        max_batch_size=batch_size,
+        max_seq_len=seq_len,
         kv_lora_rank=model_args.kv_lora_rank,
-        qk_rope_head_dim=model_args.qk_rope_head_dim, dtype=x.dtype,
+        qk_rope_head_dim=model_args.qk_rope_head_dim,
+        dtype=x.dtype,
     )
 
     with pytest.raises(RuntimeError):

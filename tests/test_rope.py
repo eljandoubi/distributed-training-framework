@@ -28,7 +28,13 @@ def test_apply_rotary_emb_preserves_shape_and_dtype():
     freqs_cis = precompute_freqs_cis(args)
 
     batch_size, n_heads = 2, 3
-    x = torch.randn(batch_size, args.max_seq_len, n_heads, args.qk_rope_head_dim, dtype=torch.float32)
+    x = torch.randn(
+        batch_size,
+        args.max_seq_len,
+        n_heads,
+        args.qk_rope_head_dim,
+        dtype=torch.float32,
+    )
     out = apply_rotary_emb(x, freqs_cis)
 
     assert out.shape == x.shape

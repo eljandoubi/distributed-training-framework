@@ -58,6 +58,5 @@ def test_lr_scheduler_state_dict_round_trip():
     fresh_schedulers.load_state_dict(state)
 
     assert (
-        fresh_schedulers.schedulers[0].last_epoch
-        == schedulers.schedulers[0].last_epoch
+        fresh_schedulers.schedulers[0].last_epoch == schedulers.schedulers[0].last_epoch
     )
