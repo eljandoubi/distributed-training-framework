@@ -58,6 +58,12 @@ class ScaledDotProductAttentionWrapper(torch.nn.Module):
             ],
             set_priority=True,
         ):
+            # NOTE: when q and k/v have different sequence lengths (e.g. during KV-cache
+            # decoding, where q covers only the newest tokens but k/v cover the whole cached
+            # prefix), `is_causal=True` applies PyTorch SDPA's "bottom-right aligned" causal
+            # mask: query position i may attend to key positions [0, i + (S - L)], where L and
+            # S are q's and k's sequence lengths. This is exactly correct for append-only KV
+            # caches (see `src/model/kv_cache.py`), so no separate masking is needed here.
             out = F.scaled_dot_product_attention(q, k, v, scale=scale, is_causal=True)
 
         if out.shape[-1] != v_head_dim:

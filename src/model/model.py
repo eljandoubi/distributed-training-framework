@@ -6,18 +6,26 @@ import torch
 from torch import nn
 
 from src.model.args import DeepSeekV3ModelArgs
+from src.model.kv_cache import MLAKVCache
 from src.model.moe import FeedForward, MoE
 from src.model.rope import apply_rotary_emb, precompute_freqs_cis
 from src.model.sdpa import ScaledDotProductAttentionWrapper
 
 
 class Attention(nn.Module):
-    """Multi-Head Latent Attention (MLA) with low-rank Q/KV projections and rotary position embeddings."""
+    """Multi-Head Latent Attention (MLA) with low-rank Q/KV projections and rotary position embeddings.
 
-    def __init__(self, model_args: DeepSeekV3ModelArgs):
+    Supports incremental decoding via an `MLAKVCache` that stores only the compressed
+    latent representation (shared across heads), either through the vanilla `forward`
+    (which re-projects the cache through `wkv_b` each call) or, after calling
+    `absorb_mla_weights`, the cheaper `forward_absorbed` path.
+    """
+
+    def __init__(self, layer_id: int, model_args: DeepSeekV3ModelArgs):
         """Build the attention projections and softmax scaling from the given model config."""
         super().__init__()
 
+        self.layer_id = layer_id
         self.dim = model_args.dim
         self.n_heads = model_args.n_heads
         self.q_lora_rank = model_args.q_lora_rank
@@ -53,11 +61,40 @@ class Attention(nn.Module):
 
         self.inner_attention = ScaledDotProductAttentionWrapper()
 
+        # Set by `absorb_mla_weights()`; enables the cheaper `forward_absorbed` decoding path.
+        self.wq_abs: nn.Linear | None = None
+        self.wo_abs: nn.Linear | None = None
+
+    @property
+    def is_absorbed(self) -> bool:
+        """Whether `absorb_mla_weights` has been called, enabling `forward_absorbed`."""
+        return self.wq_abs is not None
+
     def forward(
         self,
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
+        kv_cache: MLAKVCache | None = None,
+        start_pos: int = 0,
     ):
+        """Vanilla (non-absorbed) MLA forward pass, optionally reading/writing a compressed latent KV cache.
+
+        When `kv_cache` is provided, only the compressed latent (`kv_lora_rank`) and the
+        decoupled rotary key (`qk_rope_head_dim`) for the new tokens in `x` are cached; the
+        full cached prefix is then up-projected through `wkv_b` into per-head keys/values on
+        every call. This trades extra per-step compute for the smaller "latent" cache
+        footprint described in the DeepSeek-V2 paper. For a decoding path that avoids
+        re-projecting the whole cached prefix at every step, see `forward_absorbed`.
+
+        The KV cache is an inference-only optimization: it must never be used while the
+        module is in training mode (`self.training`), since caching would silently make
+        gradients (and thus distributed training with DP/FSDP/TP/PP/CP) incorrect.
+        """
+        if kv_cache is not None and self.training:
+            raise RuntimeError(
+                "MLAKVCache must not be used while the model is in training mode; "
+                "call model.eval() first, or omit kv_cache during training."
+            )
         batch_size, seq_len, _ = x.size()
 
         if self.q_lora_rank == 0:
@@ -75,30 +112,45 @@ class Attention(nn.Module):
         q = torch.cat([q_nope, q_pe], dim=-1)
 
         kv = self.wkv_a(x)
-        # kv: [batch_size, seq_len, kv_lora_rank]
+        # latent: [batch_size, seq_len, kv_lora_rank]
         # k_pe: [batch_size, seq_len, qk_rope_head_dim]
-        kv, k_pe = torch.split(kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
+        latent, k_pe = torch.split(kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
+        # This is the latent that should be cached.
+        latent = self.kv_norm(latent)
 
         # k_pe: [batch_size, seq_len, 1, qk_rope_head_dim]
         k_pe = apply_rotary_emb(k_pe.unsqueeze(2), freqs_cis)
-        # kv: [batch_size, seq_len, n_heads * (qk_nope_head_dim + v_head_dim)]
-        kv = self.wkv_b(self.kv_norm(kv))
-        # kv: [batch_size, seq_len, n_heads, qk_nope_head_dim + v_head_dim]
-        kv = kv.view(batch_size, seq_len, -1, self.qk_nope_head_dim + self.v_head_dim)
-        # k_nope: [batch_size, seq_len, n_heads, qk_nope_head_dim]
-        # v: [batch_size, seq_len, n_heads, v_head_dim]
+
+        if kv_cache is not None:
+            # Cache only the compressed latent representation (shared across all heads),
+            # then read back the full cached prefix (previous tokens + these new ones).
+            latent, k_pe_flat = kv_cache.update(
+                self.layer_id, start_pos, latent, k_pe.squeeze(2)
+            )
+            k_pe = k_pe_flat.unsqueeze(2)
+
+        # kv: [batch_size, cached_len, n_heads * (qk_nope_head_dim + v_head_dim)]
+        kv = self.wkv_b(latent)
+        cached_len = kv.size(1)
+        # kv: [batch_size, cached_len, n_heads, qk_nope_head_dim + v_head_dim]
+        kv = kv.view(batch_size, cached_len, -1, self.qk_nope_head_dim + self.v_head_dim)
+        # k_nope: [batch_size, cached_len, n_heads, qk_nope_head_dim]
+        # v: [batch_size, cached_len, n_heads, v_head_dim]
         k_nope, v = torch.split(kv, [self.qk_nope_head_dim, self.v_head_dim], dim=-1)
-        # k: (batch_size, seq_len, n_heads, qk_head_dim)
+        # k: (batch_size, cached_len, n_heads, qk_head_dim)
         k = torch.cat([k_nope, k_pe.expand(-1, -1, self.n_heads, -1)], dim=-1)
 
         # q: [batch_size, n_heads, seq_len, qk_head_dim]
         q = q.transpose(1, 2)
-        # k: [batch_size, n_heads, seq_len, qk_head_dim]
+        # k: [batch_size, n_heads, cached_len, qk_head_dim]
         k = k.transpose(1, 2)
-        # v: [batch_size, n_heads, seq_len, v_head_dim]
+        # v: [batch_size, n_heads, cached_len, v_head_dim]
         v = v.transpose(1, 2)
 
-        # run attention as usual
+        # Run attention as usual. When a cache is used, `q` covers only the newest
+        # `seq_len` positions while `k`/`v` cover the full cached prefix (`cached_len`);
+        # `inner_attention`'s `is_causal=True` then applies SDPA's "bottom-right aligned"
+        # causal masking, which is exactly correct for append-only KV caches.
         output = self.inner_attention(q, k, v, scale=self.softmax_scale)
 
         # Reshape and project output
@@ -176,8 +228,8 @@ class Attention(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self.wq_abs.weight.copy_(wq_abs)
-        self.wq_abs.requires_grad_(False)
+        self.wq_abs.weight.copy_(wq_abs)  # type: ignore
+        self.wq_abs.requires_grad_(False)  # type: ignore
 
         # [dim, n_heads, v_head_dim] -> [n_heads, dim, v_head_dim]
         w_o = self.wo.weight.view(
@@ -209,15 +261,31 @@ class Attention(nn.Module):
             device=device,
             dtype=dtype,
         )
-        self.wo_abs.weight.copy_(w_o_abs)
-        self.wo_abs.requires_grad_(False)
+        self.wo_abs.weight.copy_(w_o_abs)  # type: ignore
+        self.wo_abs.requires_grad_(False)  # type: ignore
 
     def forward_absorbed(
         self,
         x: torch.Tensor,
         freqs_cis: torch.Tensor,
+        kv_cache: MLAKVCache | None = None,
+        start_pos: int = 0,
     ) -> torch.Tensor:
-        """Forward pass using the weight-absorbed projections produced by `absorb_mla_weights`."""
+        """Forward pass using the weight-absorbed projections produced by `absorb_mla_weights`.
+
+        When `kv_cache` is provided, attention is computed directly against the cached
+        compressed latent + rotary key -- per-head keys/values are never materialized for
+        cached (past) tokens, avoiding the repeated `wkv_b` up-projection that the vanilla
+        `forward` path pays on every decoding step.
+
+        As with `forward`, the KV cache is an inference-only optimization and must never be
+        used while the module is in training mode.
+        """
+        if kv_cache is not None and self.training:
+            raise RuntimeError(
+                "MLAKVCache must not be used while the model is in training mode; "
+                "call model.eval() first, or omit kv_cache during training."
+            )
         assert self.wq_abs is not None
         assert self.wo_abs is not None
 
@@ -260,20 +328,32 @@ class Attention(nn.Module):
         # [batch_size, seq_len, 1, qk_rope_head_dim]
         k_rope = apply_rotary_emb(k_rope.unsqueeze(2), freqs_cis)
 
+        if kv_cache is not None:
+            # Cache only the compressed latent + decoupled rotary key (shared across all
+            # heads), then read back the full cached prefix (previous tokens + these new
+            # ones). This is the memory-saving property of MLA: no per-head K/V is stored.
+            latent, k_rope_flat = kv_cache.update(
+                self.layer_id, start_pos, latent, k_rope.squeeze(2)
+            )
+            k_rope = k_rope_flat.unsqueeze(2)
+
         # A single shared storage tensor:
-        # shared_cache: [batch_size, seq_len, 1, kv_lora_rank + qk_rope_head_dim] -> [batch_size, 1, seq_len, kv_lora_rank + qk_rope_head_dim]
+        # shared_cache: [batch_size, cached_len, 1, kv_lora_rank + qk_rope_head_dim] -> [batch_size, 1, cached_len, kv_lora_rank + qk_rope_head_dim]
         shared_cache = torch.cat(
             [latent.unsqueeze(2), k_rope],
             dim=-1,
         ).transpose(1, 2)
 
-        # k: [batch_size, 1, seq_len, kv_lora_rank + qk_rope_head_dim]
+        # k: [batch_size, 1, cached_len, kv_lora_rank + qk_rope_head_dim]
         k = shared_cache
 
-        # v: [batch_size, 1, seq_len, kv_lora_rank]
+        # v: [batch_size, 1, cached_len, kv_lora_rank]
         v = shared_cache[..., : self.kv_lora_rank]
 
         # latent_output: [batch_size, n_heads, seq_len, kv_lora_rank]
+        # `q` covers only the newest `seq_len` positions while `k`/`v` cover the full
+        # cached prefix (`cached_len`); see the note on bottom-right causal alignment in
+        # `forward` / `ScaledDotProductAttentionWrapper`.
         latent_output = self.inner_attention(q, k, v, scale=self.softmax_scale)
 
         # [batch_size, seq_len, n_heads * kv_lora_rank]
@@ -324,7 +404,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, model_args: DeepSeekV3ModelArgs):
         """Build the attention and (dense or MoE) feed-forward sublayers for one transformer layer."""
         super().__init__()
-        self.attention = Attention(model_args)
+        self.attention = Attention(layer_id, model_args)
         self.attention_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
         self.ffn_norm = nn.RMSNorm(model_args.dim, eps=model_args.norm_eps)
 
@@ -341,18 +421,33 @@ class TransformerBlock(nn.Module):
         self.weight_init_std: float = 0.02 / (2 * (layer_id + 1)) ** 0.5
         self.layer_id = layer_id
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
+    def forward(
+        self,
+        x: torch.Tensor,
+        freqs_cis: torch.Tensor,
+        kv_cache: MLAKVCache | None = None,
+        start_pos: int = 0,
+    ):
         """
         Forward pass for the Transformer block.
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, seq_len, dim).
             freqs_cis (torch.Tensor): Precomputed complex exponential values for rotary embeddings.
+            kv_cache (MLAKVCache, optional): Latent KV cache for incremental decoding.
+            start_pos (int): Position of the first token in `x` within the full sequence.
 
         Returns:
             torch.Tensor: Output tensor with the same shape as the input.
         """
-        x = x + self.attention(self.attention_norm(x), freqs_cis)
+        attention_fn = (
+            self.attention.forward_absorbed
+            if self.attention.is_absorbed
+            else self.attention.forward
+        )
+        x = x + attention_fn(
+            self.attention_norm(x), freqs_cis, kv_cache=kv_cache, start_pos=start_pos
+        )
         if self.moe_enabled:
             x = x + self.moe(self.ffn_norm(x))
         else:
@@ -432,22 +527,87 @@ class DeepSeekV3Model(nn.Module):
             b=cutoff_factor * final_out_std,
         )
 
-    def forward(self, tokens: torch.Tensor):
+    def forward(
+        self,
+        tokens: torch.Tensor,
+        kv_cache: MLAKVCache | None = None,
+        start_pos: int = 0,
+    ):
         """
         Forward pass for the Transformer model.
 
         Args:
             tokens (torch.Tensor): Input token indices if pipeline parallelism is not enabled.
                 If pipeline parallelism is enabled, this will be the input token indices for the ranks on the first pipeline stage. This will be the activation of the previous pipeline stage if the current rank is not on the first stage.
+            kv_cache (MLAKVCache, optional): Latent KV cache for incremental decoding, built via
+                `build_kv_cache`. When provided, `tokens` should contain only the new tokens
+                starting at `start_pos` (e.g. a single token per decoding step).
+            start_pos (int): Position of the first token in `tokens` within the full sequence.
+                Used to select the matching rotary embeddings and to index into `kv_cache`.
 
         Returns:
             torch.Tensor: Logits tensor of shape (batch_size, vocab_size).
         """
+        if kv_cache is not None and self.training:
+            raise RuntimeError(
+                "MLAKVCache must not be used while the model is in training mode; "
+                "call model.eval() first, or omit kv_cache during training."
+            )
 
         h = self.tok_embeddings(tokens) if self.tok_embeddings is not None else tokens
+        seq_len = h.size(1)
+        # During training seq_len always equals model_args.max_seq_len (see train.py), so
+        # this slice is a no-op there; it only takes effect for incremental decoding, where
+        # `tokens` covers just the newest positions starting at `start_pos`.
+        freqs_cis = self.freqs_cis[start_pos : start_pos + seq_len]
 
         for layer in self.layers.values():
-            h = layer(h, self.freqs_cis)
+            h = layer(h, freqs_cis, kv_cache=kv_cache, start_pos=start_pos)
         h = self.norm(h) if self.norm is not None else h
         output = self.output(h) if self.output is not None else h
         return output
+
+    def build_kv_cache(
+        self,
+        max_batch_size: int,
+        max_seq_len: int,
+        dtype: torch.dtype | None = None,
+        device: torch.device | None = None,
+    ) -> MLAKVCache:
+        """Allocate an `MLAKVCache` sized for this model's MLA latent dimensions, for incremental-decoding inference.
+
+        Inference-only: the returned cache must only be passed to `forward` (or `Attention`)
+        while the model is in eval mode (`model.eval()`). Passing it to a model still in
+        training mode raises `RuntimeError`, since caching activations would make gradients
+        (and thus distributed training under DP/FSDP/TP/PP/CP) incorrect. Also prefer running
+        inference on a separate copy of the model (e.g. loaded from a checkpoint) rather than
+        the live training instance, so switching train/eval modes never races with concurrent
+        training steps.
+        """
+        param = next(self.parameters())
+        return MLAKVCache(
+            n_layers=self.model_args.n_layers,
+            max_batch_size=max_batch_size,
+            max_seq_len=max_seq_len,
+            kv_lora_rank=self.model_args.kv_lora_rank,
+            qk_rope_head_dim=self.model_args.qk_rope_head_dim,
+            dtype=dtype or param.dtype,
+            device=device or param.device,
+        )
+
+    @torch.no_grad()
+    def absorb_mla_weights(self) -> None:
+        """Apply MLA weight absorption to every layer's attention (see `Attention.absorb_mla_weights`).
+
+        Inference-only: this permanently rewrites each attention layer to require
+        `forward_absorbed` (and thus a KV cache) going forward, so it must not be called on
+        a model that will continue training. Apply it only to a dedicated inference copy of
+        the model (e.g. loaded from a checkpoint), never to the live `Trainer.model_parts`.
+
+        After calling this, layers automatically use the cheaper `forward_absorbed` decoding
+        path (see `TransformerBlock.forward`), which pairs with `build_kv_cache` to attend
+        directly against the compressed latent cache without re-materializing per-head K/V
+        for previously cached tokens.
+        """
+        for layer in self.layers.values():
+            layer.attention.absorb_mla_weights()
