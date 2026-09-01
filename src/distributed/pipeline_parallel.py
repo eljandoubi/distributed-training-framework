@@ -38,7 +38,6 @@ def pipeline_llm(
     parallelize_fn: Callable[[nn.Module, ParallelDims, JobConfig], nn.Module],
     loss_fn: LossFunction,
 ) -> tuple[_PipelineSchedule, list[nn.Module], bool, bool]:
-
     """Split `model` into pipeline stages, apply SPMD parallelisms to each stage, and build the pipeline schedule.
 
     Returns (schedule, model_parts, has_first_stage, has_last_stage).
@@ -148,7 +147,7 @@ def build_pipeline_schedule(
 
     if looped_schedule:
         schedule = schedule_class(
-            stages, # pyright: ignore[reportArgumentType]
+            stages,  # pyright: ignore[reportArgumentType]
             n_microbatches=n_microbatches,
             loss_fn=loss_fn,
             scale_grads=False,

@@ -154,7 +154,7 @@ class ExpertParallel(ParallelStyle):
             )
             # Need to wait explicitly because it is used by a triton kernel later which doesn't realize that AsyncCollectiveTensor needs unwrapping
             num_tokens_per_expert_group = torch.ops._c10d_functional.wait_tensor(
-                num_tokens_per_expert_group 
+                num_tokens_per_expert_group
             )
 
             # input_splits has shape (ep_degree,). Entry d is the number of

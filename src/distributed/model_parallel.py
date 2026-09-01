@@ -134,7 +134,7 @@ def apply_fsdp(
     next_transformer_blocks = transformer_blocks[1:] + [None]
 
     if tok_embeddings is not None and len(layers) > 0:
-        tok_embeddings.set_modules_to_forward_prefetch([transformer_blocks[0]])  
+        tok_embeddings.set_modules_to_forward_prefetch([transformer_blocks[0]])
 
     for transformer_block, next_transformer_block in zip(
         transformer_blocks, next_transformer_blocks
@@ -156,7 +156,7 @@ def apply_fsdp(
     prev_transformer_blocks = reversed_transformer_blocks[1:] + [None]
 
     if norm is not None and output is not None and len(layers) > 0:
-        output.set_modules_to_backward_prefetch([reversed_transformer_blocks[0]])  
+        output.set_modules_to_backward_prefetch([reversed_transformer_blocks[0]])
 
     for transformer_block, prev_transformer_block in zip(
         reversed_transformer_blocks, prev_transformer_blocks

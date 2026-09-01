@@ -76,7 +76,7 @@ class NoParallel(ParallelStyle):
             None,  # if this is None, the weights are replicated by default
             partial(
                 self._prepare_input_fn, self.input_layout, self.desired_input_layout
-            ), # pyright: ignore[reportArgumentType]
+            ),  # pyright: ignore[reportArgumentType]
             partial(
                 self._prepare_output_fn,
                 self.output_layout,

@@ -157,9 +157,9 @@ class CheckpointManager:
 
         self.save_future = None
         if self.config.async_mode == AsyncMode.DISABLED:
-            self.async_mode = AsyncMode.DISABLED  
+            self.async_mode = AsyncMode.DISABLED
         elif self.config.async_mode == AsyncMode.ASYNC:
-            self.async_mode = AsyncMode.ASYNC  
+            self.async_mode = AsyncMode.ASYNC
         else:
             raise NotImplementedError(
                 f"Unsupported async checkpoint mode: {self.config.async_mode}"
@@ -178,7 +178,7 @@ class CheckpointManager:
             if self.save_future is not None:
                 self._async_wait()
             if self.async_save_pg is not None:
-                dist.destroy_process_group(self.async_save_pg) # pyright: ignore[reportArgumentType]
+                dist.destroy_process_group(self.async_save_pg)  # pyright: ignore[reportArgumentType]
                 self.async_save_pg = None
             if self.purge_thread and self.purge_thread.is_alive():
                 self.purge_queue.put(TerminateSentinel())
@@ -243,12 +243,12 @@ class CheckpointManager:
             return
 
         states = self._flattened_model_states_sd()
-        if self.async_mode == AsyncMode.ASYNC:  
+        if self.async_mode == AsyncMode.ASYNC:
             GarbageCollection.collect("GC collection invoked by checkpointer.")
             self.save_future = self.dcp_save(
                 states,
                 checkpoint_id=checkpoint_id,
-                async_mode=self.async_mode,  
+                async_mode=self.async_mode,
             )
             GarbageCollection.collect("GC collection invoked by checkpointer.")
         else:
@@ -381,7 +381,7 @@ class CheckpointManager:
 
     def _async_wait(self) -> None:
         """Block until any in-flight async checkpoint save completes."""
-        if self.async_mode == AsyncMode.ASYNC: 
+        if self.async_mode == AsyncMode.ASYNC:
             if self.save_future is not None:
                 cast(Future[Any], self.save_future).result()
                 self.save_future = None

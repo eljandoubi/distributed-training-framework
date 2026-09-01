@@ -185,7 +185,7 @@ class Trainer(Stateful):
                 job_config,
                 self.device,
                 model_args.n_layers,
-                parallelize_deepseekv3, # pyright: ignore[reportArgumentType]
+                parallelize_deepseekv3,  # pyright: ignore[reportArgumentType]
                 self.loss_fn,
             )
             # when PP is enabled, `model` obj is no longer used after this point, model_parts is used instead
@@ -370,7 +370,7 @@ class Trainer(Stateful):
 
             # accumulate losses across pipeline microbatches
             if self.pp_has_last_stage:
-                loss = (torch.sum(torch.stack(losses)) / global_valid_tokens).to( # type: ignore
+                loss = (torch.sum(torch.stack(losses)) / global_valid_tokens).to(  # type: ignore
                     self.device
                 )
             else:

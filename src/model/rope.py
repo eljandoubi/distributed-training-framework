@@ -17,6 +17,7 @@ def find_correction_dim(
         / (2 * math.log(base))
     )
 
+
 def find_correction_range(
     low_rot: float, high_rot: float, dim: int, base: float, max_seq_len: int
 ) -> tuple[int, int]:
@@ -25,6 +26,7 @@ def find_correction_range(
     high = math.ceil(find_correction_dim(high_rot, dim, base, max_seq_len))
     return max(low, 0), min(high, dim - 1)
 
+
 def linear_ramp_factor(min: float, max: float, dim: int) -> torch.Tensor:
     """Build a linear ramp from 0 to 1 over `[min, max]`, clamped outside that range, used to blend YaRN-scaled and unscaled frequencies."""
     if min == max:
@@ -32,6 +34,7 @@ def linear_ramp_factor(min: float, max: float, dim: int) -> torch.Tensor:
     linear_func = (torch.arange(dim, dtype=torch.float32) - min) / (max - min)
     ramp_func = torch.clamp(linear_func, 0, 1)
     return ramp_func
+
 
 def precompute_freqs_cis(args: DeepSeekV3ModelArgs) -> torch.Tensor:
     """Precompute the complex-exponential RoPE frequency table (with YaRN scaling if the sequence length exceeds the original training length)."""

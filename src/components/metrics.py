@@ -38,7 +38,7 @@ DeviceMemStats = namedtuple(
 )
 
 
-def  _tensor_norm(tensor: torch.Tensor) -> torch.Tensor:
+def _tensor_norm(tensor: torch.Tensor) -> torch.Tensor:
     """L2 norm of a tensor, handling DTensors correctly."""
     norm = torch.nn.utils.get_total_norm([tensor], 2.0)
     if isinstance(norm, DTensor):
@@ -236,7 +236,9 @@ def _build_metric_logger(
     # Setup logging directory
     dump_dir = job_config.job.dump_folder
     base_log_dir = os.path.join(
-        dump_dir, metrics_config.save_folder, datetime.now(tz=UTC).strftime("%Y%m%d-%H%M")
+        dump_dir,
+        metrics_config.save_folder,
+        datetime.now(tz=UTC).strftime("%Y%m%d-%H%M"),
     )
 
     if metrics_config.save_for_all_ranks:

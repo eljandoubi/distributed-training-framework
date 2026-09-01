@@ -76,18 +76,18 @@ def _run_experts_grouped_mm(
 
     # `h` shape: [batch_size * seq_len * top_k, hidden_dim]
     h = F.silu(
-        torch._grouped_mm( # pyright: ignore[reportPrivateImportUsage]
+        torch._grouped_mm(  # pyright: ignore[reportPrivateImportUsage]
             routed_input.bfloat16(), w1.bfloat16().transpose(-2, -1), offs=offsets
         )
     )
 
     # `h` shape: [batch_size * seq_len * top_k, hidden_dim]
-    h = h * torch._grouped_mm( # pyright: ignore[reportPrivateImportUsage]
+    h = h * torch._grouped_mm(  # pyright: ignore[reportPrivateImportUsage]
         routed_input.bfloat16(), w3.bfloat16().transpose(-2, -1), offs=offsets
     )
 
     # `out` shape: [batch_size * seq_len * top_k, dim]
-    out = torch._grouped_mm(h, w2.bfloat16().transpose(-2, -1), offs=offsets).type_as( # pyright: ignore[reportPrivateImportUsage]
+    out = torch._grouped_mm(h, w2.bfloat16().transpose(-2, -1), offs=offsets).type_as(  # pyright: ignore[reportPrivateImportUsage]
         routed_input
     )
 

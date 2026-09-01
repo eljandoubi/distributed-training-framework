@@ -40,7 +40,7 @@ def _permute(x, num_tokens_per_expert_group, ep_degree, num_local_experts):
             _offsets,
         ) = generate_permute_indices(
             num_tokens_per_expert_group,
-            num_local_experts, # pyright: ignore[reportCallIssue]
+            num_local_experts,  # pyright: ignore[reportCallIssue]
             ep_degree,
             padded_max_len,
             TOKEN_GROUP_ALIGN_SIZE_M,

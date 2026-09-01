@@ -20,7 +20,7 @@ from src.dataset import DatasetConfig
 
 def _load_fineweb_dataset(dataset_path: str, split: str):
     """Stream-load the FineWeb dataset from the Hugging Face Hub with generous timeouts/retries."""
-    huggingface_hub.constants.DEFAULT_REQUEST_TIMEOUT = 300  
+    huggingface_hub.constants.DEFAULT_REQUEST_TIMEOUT = 300
     huggingface_hub.constants.DEFAULT_DOWNLOAD_TIMEOUT = 300
     return load_dataset(
         dataset_path,

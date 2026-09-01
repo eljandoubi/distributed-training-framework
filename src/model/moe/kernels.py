@@ -88,7 +88,7 @@ def fill_indices_wrapper(
         start_index_values,
         write_offsets,
         permuted_indices,
-        experts_per_rank,   # pyright: ignore[reportArgumentType]
+        experts_per_rank,  # pyright: ignore[reportArgumentType]
         num_ranks,  # pyright: ignore[reportArgumentType]
         BLOCK_SIZE=block_size,  # pyright: ignore[reportArgumentType]
     )

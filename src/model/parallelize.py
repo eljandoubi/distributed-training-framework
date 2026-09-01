@@ -28,8 +28,8 @@ def _build_op_sac_save_list() -> set:
     try:
         from torch._functorch.partitioners import get_default_op_list
 
-        save_ops = {op.default for op in get_default_op_list().compute_intensive_ops}  
-    except (ImportError, AttributeError):
+        save_ops = {op.default for op in get_default_op_list().compute_intensive_ops}
+    except ImportError, AttributeError:
         save_ops = {
             torch.ops.aten.mm.default,
             torch.ops.aten._scaled_dot_product_efficient_attention.default,
@@ -49,7 +49,7 @@ def _build_op_sac_save_list() -> set:
             save_ops.add(op)
 
     # FlexAttention higher-order op (may not exist in all PyTorch versions)
-    if hasattr(torch._higher_order_ops, "flex_attention"): # pyright: ignore[reportAttributeAccessIssue]
+    if hasattr(torch._higher_order_ops, "flex_attention"):  # pyright: ignore[reportAttributeAccessIssue]
         save_ops.add(torch._higher_order_ops.flex_attention)  # pyright: ignore[reportAttributeAccessIssue]
 
     return save_ops
@@ -73,8 +73,8 @@ def parallelize_deepseekv3(
 
     if parallel_dims.tp_enabled:
         tp = parallel_dims.tp
-        n_heads = model.model_args.n_heads  
-        if n_heads % tp != 0:  
+        n_heads = model.model_args.n_heads
+        if n_heads % tp != 0:
             raise ValueError(
                 f"tensor_parallel_degree ({tp}) must divide n_heads ({n_heads})."
             )
@@ -173,7 +173,7 @@ def apply_compile(model: DeepSeekV3Model, compile_config: CompileConfig):
     """
     # NOTE: This flag is needed for torch.compile to avoid graph breaking on dynamic shapes in token-choice MoE but it is experimental.
     # torch._dynamo.config.capture_scalar_outputs = True
-    for layer_id, transformer_block in model.layers.named_children(): 
+    for layer_id, transformer_block in model.layers.named_children():
         fullgraph = True
         if transformer_block.moe_enabled:
             fullgraph = False
@@ -182,7 +182,7 @@ def apply_compile(model: DeepSeekV3Model, compile_config: CompileConfig):
             backend=compile_config.backend,
             fullgraph=fullgraph,
         )
-        model.layers.register_module(layer_id, transformer_block) # pyright: ignore[reportArgumentType]
+        model.layers.register_module(layer_id, transformer_block)  # pyright: ignore[reportArgumentType]
 
     logger.info("Compiling each TransformerBlock with torch.compile")
 
@@ -220,7 +220,7 @@ def apply_non_moe_tp(
         },
     )
 
-    for transformer_block in model.layers.values():  
+    for transformer_block in model.layers.values():
         layer_plan: dict[str, ParallelStyle] = {
             "attention_norm": SequenceParallel(),
             "attention": PrepareModuleInput(
@@ -243,7 +243,7 @@ def apply_non_moe_tp(
             "ffn_norm": SequenceParallel(),
         }
 
-        if transformer_block.attention.q_lora_rank == 0: # pyright: ignore[reportAttributeAccessIssue]
+        if transformer_block.attention.q_lora_rank == 0:  # pyright: ignore[reportAttributeAccessIssue]
             layer_plan.update(
                 {
                     "attention.wq": ColwiseParallel(
