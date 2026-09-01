@@ -72,6 +72,8 @@ src/
     parallelize.py                  Wires TP/EP/AC/compile/FSDP together per model
     moe/                            DeepSeekMoE: router, grouped-GEMM experts, Triton permute kernel
   tools/                          Device utils, profiling, peak-FLOPS tables, GC control
+scripts/
+  slurm_train.sbatch              SLURM launch script (srun + torchrun, multi-node)
 tests/                          CPU/gloo-backed unit tests (pytest)
 ```
 
@@ -127,6 +129,24 @@ Each preset in [`src/config/default_configs.py`](src/config/default_configs.py) 
 combination of parallelism dimensions (`data_parallel_shard_degree`, `tensor_parallel_degree`,
 `pipeline_parallel_degree`, `context_parallel_degree`, `expert_parallel_degree`,
 `expert_tensor_parallel_degree`) on top of the shared DeepSeek-V3 model/training defaults.
+
+## Running on SLURM
+
+Multi-node training is supported via [`scripts/slurm_train.sbatch`](scripts/slurm_train.sbatch), which
+wraps `torchrun` with `srun` and derives the rendezvous endpoint from the SLURM node list (`c10d`
+rendezvous backend, one `torchrun` launcher process per node):
+
+```bash
+export src_CONFIG=fsdp        # one of: ddp, fsdp, hsdp, pp_tp, fsdp_tp, fsdp_cp,
+                               #         hsdp_ep, fsdp_ep_tp, fsdp_ep_etp
+sbatch --nodes=2 --gpus-per-node=8 scripts/slurm_train.sbatch
+```
+
+Notes:
+- `--nodes` × `--gpus-per-node` must equal the world size implied by your chosen `src_CONFIG` preset's
+  parallelism degrees.
+- `--ntasks-per-node=1` is required — `torchrun` itself spawns one process per GPU on each node.
+- Override `MASTER_PORT` (default `29500`) if it collides with another job on the same node.
 
 ## Testing
 
